@@ -14,6 +14,31 @@
 
   <main>
 
+    <!-- My Portfolios -->
+    <section class="card">
+      <h2>My Portfolios</h2>
+      <div class="portfolio-mgmt">
+
+        <div class="portfolio-email-row">
+          <input type="email" id="userEmail" placeholder="your@email.com" autocomplete="email">
+          <button id="lookupBtn">Look Up</button>
+        </div>
+
+        <div id="savedPortfoliosWrap" class="hidden">
+          <div class="saved-header">Saved portfolios:</div>
+          <div id="savedList" class="saved-list"></div>
+        </div>
+
+        <div id="saveWrap" class="hidden">
+          <div class="save-row">
+            <input type="text" id="portfolioName" placeholder="Portfolio name (e.g. Retirement)">
+            <button id="saveBtn" disabled title="Run an analysis first">Save Portfolio</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
     <!-- Fund Allocations -->
     <section class="card">
       <h2>Fund Allocations</h2>
@@ -68,7 +93,7 @@
     <!-- Results -->
     <section id="resultsSection" class="card hidden">
       <div class="results-header">
-        <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via Yahoo Finance</span></h2>
+        <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via stockanalysis.com</span></h2>
         <div>
           <button id="exportBtn">Download CSV</button>
         </div>

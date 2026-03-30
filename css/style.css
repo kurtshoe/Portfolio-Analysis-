@@ -56,6 +56,106 @@ h2 {
   color: #4a90e2;
 }
 
+/* My Portfolios */
+.portfolio-mgmt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.portfolio-email-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.portfolio-email-row input {
+  flex: 1;
+  max-width: 320px;
+}
+
+.saved-header {
+  font-size: 0.82rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.4rem;
+}
+
+.saved-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.saved-empty {
+  font-size: 0.88rem;
+  color: #aaa;
+  font-style: italic;
+}
+
+.saved-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: #f5f7fa;
+  border-radius: 6px;
+  border: 1px solid #e8e8e8;
+  gap: 0.75rem;
+}
+
+.saved-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.saved-name {
+  font-weight: bold;
+  font-size: 0.9rem;
+  color: #1a3a5c;
+}
+
+.saved-meta {
+  font-size: 0.78rem;
+  color: #999;
+}
+
+.saved-item-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.btn-load {
+  background: #1a3a5c;
+  color: white;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.8rem;
+}
+
+.btn-load:hover { background: #0f2540; }
+
+.btn-delete {
+  background: none;
+  color: #e24a4a;
+  border: 1px solid #e24a4a;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.btn-delete:hover { background: #fff0f0; }
+
+.save-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.save-row input {
+  flex: 1;
+  max-width: 320px;
+}
+
 /* API Key */
 .api-row {
   display: flex;

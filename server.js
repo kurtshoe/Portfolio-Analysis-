@@ -7,7 +7,21 @@
 
 const http  = require('http');
 const https = require('https');
+const fs    = require('fs');
+const path  = require('path');
 const PORT  = 3001;
+
+// ── Portfolio storage (flat JSON file) ────────────────────────────────────────
+const PORTFOLIOS_FILE = path.join(__dirname, 'portfolios.json');
+
+function loadStore() {
+  try { return JSON.parse(fs.readFileSync(PORTFOLIOS_FILE, 'utf8')); }
+  catch { return {}; }
+}
+
+function saveStore(store) {
+  fs.writeFileSync(PORTFOLIOS_FILE, JSON.stringify(store, null, 2));
+}
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -216,11 +230,75 @@ async function getHoldings(ticker, type) {
 // ── HTTP Server ───────────────────────────────────────────────────────────────
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  // ── Portfolio list ──────────────────────────────────────────────────────────
+  if (url.pathname === '/portfolio/list') {
+    const email = (url.searchParams.get('email') || '').trim().toLowerCase();
+    if (!email) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email' })); return; }
+    const store      = loadStore();
+    const portfolios = store[email] || {};
+    const list = Object.entries(portfolios).map(([name, p]) => ({
+      name,
+      savedAt:   p.savedAt,
+      fundCount: p.funds.length
+    })).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(list));
+    return;
+  }
+
+  // ── Portfolio load ──────────────────────────────────────────────────────────
+  if (url.pathname === '/portfolio/load') {
+    const email = (url.searchParams.get('email') || '').trim().toLowerCase();
+    const name  = (url.searchParams.get('name')  || '').trim();
+    if (!email || !name) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email or name' })); return; }
+    const store = loadStore();
+    const p     = store[email]?.[name];
+    if (!p) { res.writeHead(404); res.end(JSON.stringify({ error: 'Portfolio not found' })); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(p));
+    return;
+  }
+
+  // ── Portfolio save ──────────────────────────────────────────────────────────
+  if (url.pathname === '/portfolio/save' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const { email, name, funds } = JSON.parse(body);
+        if (!email || !name || !funds) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing fields' })); return; }
+        const store = loadStore();
+        if (!store[email.toLowerCase()]) store[email.toLowerCase()] = {};
+        store[email.toLowerCase()][name] = { funds, savedAt: new Date().toISOString() };
+        saveStore(store);
+        console.log(`  Saved portfolio "${name}" for ${email}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(400); res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
+  // ── Portfolio delete ────────────────────────────────────────────────────────
+  if (url.pathname === '/portfolio/delete' && req.method === 'DELETE') {
+    const email = (url.searchParams.get('email') || '').trim().toLowerCase();
+    const name  = (url.searchParams.get('name')  || '').trim();
+    if (!email || !name) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email or name' })); return; }
+    const store = loadStore();
+    if (store[email]?.[name]) { delete store[email][name]; saveStore(store); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
 
   if (url.pathname !== '/holdings') {
     res.writeHead(404, { 'Content-Type': 'application/json' });

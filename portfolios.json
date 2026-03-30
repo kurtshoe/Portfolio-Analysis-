@@ -1,0 +1,24 @@
+{
+  "kurtshoe@yahoo.com": {
+    "Big Time Tech": {
+      "funds": [
+        {
+          "ticker": "QQQ",
+          "type": "etf",
+          "alloc": 50
+        },
+        {
+          "ticker": "SMH",
+          "type": "etf",
+          "alloc": 25
+        },
+        {
+          "ticker": "CIBR",
+          "type": "etf",
+          "alloc": 25
+        }
+      ],
+      "savedAt": "2026-03-30T22:14:30.127Z"
+    }
+  }
+}

@@ -7,6 +7,7 @@ let sortDir = -1;         // -1 = desc
 
 // ── Fund table ───────────────────────────────────────────────────────────────
 function renderFundsTable() {
+  document.getElementById('saveBtn').disabled = true;
   const tbody = document.getElementById('fundsBody');
   if (funds.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;font-style:italic;padding:0.75rem">No funds added yet.</td></tr>';
@@ -156,6 +157,7 @@ async function runAnalysis() {
 
   setLoading(false);
   renderResults(errors);
+  document.getElementById('saveBtn').disabled = aggregated.length === 0;
 }
 
 // ── Results ──────────────────────────────────────────────────────────────────
@@ -329,6 +331,115 @@ function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ── Portfolio save / load ─────────────────────────────────────────────────────
+const PROXY = 'http://localhost:3001';
+
+function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
+
+document.getElementById('lookupBtn').addEventListener('click', () => {
+  const email = getEmail();
+  if (!email) { showToast('Enter your email address first.'); return; }
+  lookupPortfolios(email);
+});
+
+document.getElementById('userEmail').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('lookupBtn').click();
+});
+
+async function lookupPortfolios(email) {
+  try {
+    const res  = await fetch(`${PROXY}/portfolio/list?email=${encodeURIComponent(email)}`);
+    const list = await res.json();
+    renderSavedList(list);
+    document.getElementById('savedPortfoliosWrap').classList.remove('hidden');
+    document.getElementById('saveWrap').classList.remove('hidden');
+  } catch {
+    showToast('Could not reach server — is server.js running?');
+  }
+}
+
+function renderSavedList(list) {
+  const el = document.getElementById('savedList');
+  if (!list.length) {
+    el.innerHTML = '<span class="saved-empty">No saved portfolios yet.</span>';
+    return;
+  }
+  el.innerHTML = list.map(p => `
+    <div class="saved-item">
+      <div class="saved-item-info">
+        <span class="saved-name">${escapeHtml(p.name)}</span>
+        <span class="saved-meta">${p.fundCount} fund${p.fundCount !== 1 ? 's' : ''} &middot; saved ${formatDate(p.savedAt)}</span>
+      </div>
+      <div class="saved-item-actions">
+        <button class="btn-load"   data-name="${escapeHtml(p.name)}">Load</button>
+        <button class="btn-delete" data-name="${escapeHtml(p.name)}">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.btn-load').forEach(btn =>
+    btn.addEventListener('click', () => loadPortfolio(btn.dataset.name))
+  );
+  el.querySelectorAll('.btn-delete').forEach(btn =>
+    btn.addEventListener('click', () => deletePortfolio(btn.dataset.name))
+  );
+}
+
+async function loadPortfolio(name) {
+  const email = getEmail();
+  if (!email) { showToast('Enter your email address first.'); return; }
+  try {
+    const res = await fetch(`${PROXY}/portfolio/load?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
+    if (!res.ok) { showToast('Portfolio not found.'); return; }
+    const p = await res.json();
+    funds = p.funds;
+    renderFundsTable();
+    document.getElementById('resultsSection').classList.add('hidden');
+    document.getElementById('portfolioName').value = name;
+    showToast(`Loaded "${name}" — review allocations then click Analyze.`);
+  } catch {
+    showToast('Could not load portfolio — is server.js running?');
+  }
+};
+
+async function deletePortfolio(name) {
+  if (!confirm(`Delete portfolio "${name}"?`)) return;
+  const email = getEmail();
+  try {
+    await fetch(`${PROXY}/portfolio/delete?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+    lookupPortfolios(email);
+    showToast(`Deleted "${name}".`);
+  } catch {
+    showToast('Could not delete — is server.js running?');
+  }
+};
+
+document.getElementById('saveBtn').addEventListener('click', async () => {
+  const email = getEmail();
+  const name  = document.getElementById('portfolioName').value.trim();
+  if (!email) { showToast('Enter your email address first.'); return; }
+  if (!name)  { showToast('Enter a portfolio name.'); return; }
+  if (!funds.length) { showToast('Add funds before saving.'); return; }
+  try {
+    const res = await fetch(`${PROXY}/portfolio/save`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, name, funds })
+    });
+    if (!res.ok) { showToast('Save failed.'); return; }
+    showToast(`Saved "${name}" successfully.`);
+    lookupPortfolios(email);
+  } catch {
+    showToast('Could not save — is server.js running?');
+  }
+});
+
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
