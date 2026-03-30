@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kurt Shoe Investment Analysis</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Kurt Shoe Investment Analysis</h1>
+    <p>Uncover your true stock exposure across funds</p>
+  </header>
+
+  <main>
+
+    <!-- Fund Allocations -->
+    <section class="card">
+      <h2>Fund Allocations</h2>
+      <table id="fundsTable">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Type</th>
+            <th>Allocation %</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="fundsBody">
+          <!-- rows added dynamically -->
+        </tbody>
+      </table>
+
+      <div class="fund-add-row">
+        <input type="text" id="newTicker" placeholder="Ticker (e.g. VOO)" maxlength="10">
+        <select id="newType">
+          <option value="etf">ETF / Index Fund</option>
+          <option value="mutual">Mutual Fund</option>
+        </select>
+        <input type="number" id="newAlloc" placeholder="%" min="0.01" max="100" step="0.01">
+        <button id="addFundBtn">Add Fund</button>
+      </div>
+
+      <div class="alloc-summary">
+        <div class="alloc-progress-row">
+          <span class="alloc-label">Total allocated:</span>
+          <div class="alloc-bar-wrap">
+            <div id="allocBar" class="alloc-bar" style="width:0%"></div>
+          </div>
+          <strong id="totalAlloc" class="alloc-total">0%</strong>
+          <span id="allocRemaining" class="alloc-remaining">100% remaining</span>
+        </div>
+        <span id="allocWarning" class="warning hidden">Must equal 100% to analyze</span>
+      </div>
+
+      <div class="actions">
+        <button id="analyzeBtn" class="primary" disabled>Analyze Portfolio</button>
+        <button id="clearFundsBtn" class="secondary">Clear All</button>
+      </div>
+    </section>
+
+    <!-- Loading -->
+    <div id="loadingMsg" class="loading hidden">
+      <div class="spinner"></div>
+      <span id="loadingText">Fetching holdings...</span>
+    </div>
+
+    <!-- Results -->
+    <section id="resultsSection" class="card hidden">
+      <div class="results-header">
+        <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via Yahoo Finance</span></h2>
+        <div>
+          <button id="exportBtn">Download CSV</button>
+        </div>
+      </div>
+
+      <div id="dataSourcesInfo" class="data-sources hidden"></div>
+
+      <div class="filter-row">
+        <input type="text" id="searchBox" placeholder="Search ticker or name...">
+        <label>
+          <input type="checkbox" id="top20Only"> Top 20 only
+        </label>
+      </div>
+
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th class="sortable" data-col="asset">Ticker</th>
+            <th class="sortable" data-col="name">Name</th>
+            <th class="sortable active" data-col="portfolioPct">Portfolio %</th>
+            <th>Held In</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+
+      <div id="fetchErrors" class="error-list hidden"></div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
