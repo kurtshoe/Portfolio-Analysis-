@@ -20,5 +20,27 @@
       ],
       "savedAt": "2026-03-30T22:14:30.127Z"
     }
+  },
+  "rachelschulenburg@yahoo.com": {
+    "Avoid Tech": {
+      "funds": [
+        {
+          "ticker": "SPY",
+          "type": "etf",
+          "alloc": 50
+        },
+        {
+          "ticker": "EFA",
+          "type": "etf",
+          "alloc": 25
+        },
+        {
+          "ticker": "EEM",
+          "type": "etf",
+          "alloc": 25
+        }
+      ],
+      "savedAt": "2026-03-30T22:45:51.518Z"
+    }
   }
 }

@@ -11,6 +11,27 @@ const fs    = require('fs');
 const path  = require('path');
 const PORT  = 3001;
 
+const STATIC_DIR = __dirname;
+const MIME = {
+  '.html': 'text/html',
+  '.css':  'text/css',
+  '.js':   'application/javascript',
+  '.json': 'application/json',
+  '.ico':  'image/x-icon',
+};
+
+function serveStatic(req, res) {
+  let filePath = path.join(STATIC_DIR, req.url === '/' ? 'index.html' : req.url);
+  // Prevent path traversal outside project dir
+  if (!filePath.startsWith(STATIC_DIR)) { res.writeHead(403); res.end(); return; }
+  const ext = path.extname(filePath);
+  fs.readFile(filePath, (err, data) => {
+    if (err) { res.writeHead(404); res.end('Not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain' });
+    res.end(data);
+  });
+}
+
 // ── Portfolio storage (flat JSON file) ────────────────────────────────────────
 const PORTFOLIOS_FILE = path.join(__dirname, 'portfolios.json');
 
@@ -301,8 +322,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname !== '/holdings') {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Not found' }));
+    serveStatic(req, res);
     return;
   }
 
@@ -328,13 +348,23 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '0.0.0.0', () => {
+  // Show all usable network addresses
+  const { networkInterfaces } = require('os');
+  const nets = networkInterfaces();
+  const ips  = ['localhost'];
+  for (const iface of Object.values(nets)) {
+    for (const n of iface) {
+      if (n.family === 'IPv4' && !n.internal) ips.push(n.address);
+    }
+  }
   console.log('');
-  console.log('  Portfolio Allocation Proxy');
-  console.log(`  Listening at http://localhost:${PORT}`);
+  console.log('  Kurt Shoe Investment Analysis');
   console.log('');
-  console.log('  Keep this window open while using the app.');
-  console.log('  Open index.html in your browser, then run your analysis.');
+  console.log('  Open in browser:');
+  ips.forEach(ip => console.log(`    http://${ip}:${PORT}`));
+  console.log('');
+  console.log('  Share any of the network addresses above with other users on the same network.');
   console.log('  Press Ctrl+C to stop.');
   console.log('');
 });

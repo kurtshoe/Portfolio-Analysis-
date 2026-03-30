@@ -1,4 +1,4 @@
-const LOCAL_PROXY = 'http://localhost:3001/holdings';
+const LOCAL_PROXY = '/holdings';
 const YF_BASE     = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary';
 const YF_BASE2    = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary';
 
@@ -44,12 +44,7 @@ async function fetchHoldings(ticker, type = 'etf') {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Proxy HTTP ${res.status}`);
   } catch (e) {
-    if (e.name === 'TypeError' || e.name === 'AbortError' ||
-        e.message.includes('fetch') || e.message.includes('connect')) {
-      console.warn('Local proxy not reachable, falling back to external proxies.');
-    } else {
-      throw e;
-    }
+    throw e;
   }
 
   // ── 2. Last resort: external CORS proxies (10 holdings) ──────────────────

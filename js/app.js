@@ -334,7 +334,7 @@ function escapeHtml(str) {
 }
 
 // ── Portfolio save / load ─────────────────────────────────────────────────────
-const PROXY = 'http://localhost:3001';
+const PROXY = '';
 
 function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
 
