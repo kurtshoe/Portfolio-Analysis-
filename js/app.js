@@ -334,7 +334,10 @@ function escapeHtml(str) {
 }
 
 // ── Portfolio save / load ─────────────────────────────────────────────────────
-const PROXY = '';
+function serverBase() {
+  if (window.location.port === '3001') return '';
+  return localStorage.getItem('serverUrl') || '';
+}
 
 function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
 
@@ -350,7 +353,7 @@ document.getElementById('userEmail').addEventListener('keydown', e => {
 
 async function lookupPortfolios(email) {
   try {
-    const res  = await fetch(`${PROXY}/portfolio/list?email=${encodeURIComponent(email)}`);
+    const res  = await fetch(`${serverBase()}/portfolio/list?email=${encodeURIComponent(email)}`);
     const list = await res.json();
     renderSavedList(list);
     document.getElementById('savedPortfoliosWrap').classList.remove('hidden');
@@ -391,7 +394,7 @@ async function loadPortfolio(name) {
   const email = getEmail();
   if (!email) { showToast('Enter your email address first.'); return; }
   try {
-    const res = await fetch(`${PROXY}/portfolio/load?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
+    const res = await fetch(`${serverBase()}/portfolio/load?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`);
     if (!res.ok) { showToast('Portfolio not found.'); return; }
     const p = await res.json();
     funds = p.funds;
@@ -408,7 +411,7 @@ async function deletePortfolio(name) {
   if (!confirm(`Delete portfolio "${name}"?`)) return;
   const email = getEmail();
   try {
-    await fetch(`${PROXY}/portfolio/delete?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+    await fetch(`${serverBase()}/portfolio/delete?email=${encodeURIComponent(email)}&name=${encodeURIComponent(name)}`, { method: 'DELETE' });
     lookupPortfolios(email);
     showToast(`Deleted "${name}".`);
   } catch {
@@ -423,7 +426,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
   if (!name)  { showToast('Enter a portfolio name.'); return; }
   if (!funds.length) { showToast('Add funds before saving.'); return; }
   try {
-    const res = await fetch(`${PROXY}/portfolio/save`, {
+    const res = await fetch(`${serverBase()}/portfolio/save`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ email, name, funds })
@@ -442,5 +445,42 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+// ── Server connection banner ──────────────────────────────────────────────────
+function initServerBanner() {
+  if (window.location.port === '3001') return; // served directly from Node — no banner needed
+
+  const banner = document.getElementById('serverBanner');
+  const input  = document.getElementById('serverUrlInput');
+  const btn    = document.getElementById('serverConnectBtn');
+  const status = document.getElementById('serverStatus');
+
+  banner.classList.remove('hidden');
+
+  const saved = localStorage.getItem('serverUrl');
+  if (saved) { input.value = saved; testServerUrl(saved, status); }
+
+  btn.addEventListener('click', () => {
+    const url = input.value.trim().replace(/\/$/, '');
+    if (!url) { status.textContent = 'Enter a server address.'; status.className = 'server-status error'; return; }
+    localStorage.setItem('serverUrl', url);
+    testServerUrl(url, status);
+  });
+}
+
+async function testServerUrl(url, statusEl) {
+  statusEl.textContent = 'Testing...';
+  statusEl.className   = 'server-status';
+  try {
+    const res = await fetch(`${url}/holdings?ticker=TEST&type=etf`, { signal: AbortSignal.timeout(5000) });
+    // Any response (even an error) means the server is reachable
+    statusEl.textContent = 'Connected';
+    statusEl.className   = 'server-status ok';
+  } catch {
+    statusEl.textContent = 'Cannot reach server — check the address and that server.js is running.';
+    statusEl.className   = 'server-status error';
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
+initServerBanner();
 renderFundsTable();

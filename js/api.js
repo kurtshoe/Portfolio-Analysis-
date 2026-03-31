@@ -1,4 +1,11 @@
-const LOCAL_PROXY = '/holdings';
+// If served from the Node.js server itself, use relative URLs.
+// Otherwise use the server URL the user configured (stored in localStorage).
+function serverBase() {
+  if (window.location.port === '3001') return '';
+  return localStorage.getItem('serverUrl') || '';
+}
+
+const LOCAL_PROXY = () => `${serverBase()}/holdings`;
 const YF_BASE     = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary';
 const YF_BASE2    = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary';
 
@@ -28,7 +35,7 @@ async function fetchHoldings(ticker, type = 'etf') {
 
   // ── 1. Local Node proxy (scrapes page for 25 holdings) ───────────────────
   try {
-    const res = await fetch(`${LOCAL_PROXY}?ticker=${encodeURIComponent(ticker)}&type=${encodeURIComponent(type || 'etf')}`, {
+    const res = await fetch(`${LOCAL_PROXY()}?ticker=${encodeURIComponent(ticker)}&type=${encodeURIComponent(type || 'etf')}`, {
       signal: AbortSignal.timeout(15000)
     });
     if (res.ok) {
