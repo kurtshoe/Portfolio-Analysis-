@@ -334,9 +334,11 @@ function escapeHtml(str) {
 }
 
 // ── Portfolio save / load ─────────────────────────────────────────────────────
+const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
+
 function serverBase() {
   if (window.location.port === '3001') return '';
-  return localStorage.getItem('serverUrl') || '';
+  return localStorage.getItem('serverUrl') || DEPLOYED_SERVER_URL;
 }
 
 function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
@@ -447,7 +449,10 @@ function formatDate(iso) {
 
 // ── Server connection banner ──────────────────────────────────────────────────
 function initServerBanner() {
-  if (window.location.port === '3001') return; // served directly from Node — no banner needed
+  const host = window.location.hostname;
+  if (window.location.port === '3001') return;       // local Node server
+  if (host.includes('railway.app'))    return;       // deployed on Railway
+  if (DEPLOYED_SERVER_URL && host === new URL(DEPLOYED_SERVER_URL).hostname) return; // custom domain
 
   const banner = document.getElementById('serverBanner');
   const input  = document.getElementById('serverUrlInput');
