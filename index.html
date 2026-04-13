@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kurt Shoe Investment Analysis</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>Kurt Shoe Investment Analysis</h1>
+    <p>Uncover your true stock exposure across funds</p>
+  </header>
+
+  <!-- Server connection banner (shown when not served from Node.js) -->
+  <div id="serverBanner" class="server-banner hidden">
+    <div class="server-banner-inner">
+      <span>Enter the address of your local server to enable all features:</span>
+      <input type="text" id="serverUrlInput" placeholder="e.g. http://192.168.1.45:3001">
+      <button id="serverConnectBtn">Connect</button>
+      <span id="serverStatus" class="server-status"></span>
+    </div>
+  </div>
+
+  <main>
+
+    <!-- My Portfolios -->
+    <section class="card">
+      <h2>My Portfolios</h2>
+      <div class="portfolio-mgmt">
+
+        <div class="portfolio-email-row">
+          <input type="email" id="userEmail" placeholder="your@email.com" autocomplete="email">
+          <button id="lookupBtn">Look Up</button>
+        </div>
+
+        <!-- Portfolio Type Selector -->
+        <div class="portfolio-type-row">
+          <label for="portfolioType">Portfolio type:</label>
+          <select id="portfolioType">
+            <option value="custom">Custom Portfolio</option>
+            <option value="accenture401k">Accenture 401K</option>
+          </select>
+        </div>
+
+        <div id="savedPortfoliosWrap" class="hidden">
+          <div class="saved-header">Saved portfolios:</div>
+          <div id="savedList" class="saved-list"></div>
+        </div>
+
+        <div id="saveWrap" class="hidden">
+          <div class="save-row">
+            <input type="text" id="portfolioName" placeholder="Portfolio name (e.g. Retirement)">
+            <button id="saveBtn" disabled title="Run an analysis first">Save Portfolio</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Fund Allocations -->
+    <section class="card">
+      <h2>Fund Allocations</h2>
+
+      <!-- Accenture 401K portfolio name prompt (hidden by default) -->
+      <div id="accentureNameRow" class="accenture-name-row hidden">
+        <label for="accenturePortfolioName">Portfolio name:</label>
+        <input type="text" id="accenturePortfolioName" placeholder="e.g. My Accenture 401K">
+      </div>
+
+      <table id="fundsTable">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Type</th>
+            <th>Allocation %</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="fundsBody">
+          <!-- rows added dynamically -->
+        </tbody>
+      </table>
+
+      <!-- Add fund row — hidden when Accenture 401K is selected -->
+      <div id="fundAddRow" class="fund-add-row">
+        <input type="text" id="newTicker" placeholder="Ticker (e.g. VOO)" maxlength="10">
+        <select id="newType">
+          <option value="etf">ETF / Index Fund</option>
+          <option value="mutual">Mutual Fund</option>
+        </select>
+        <input type="number" id="newAlloc" placeholder="%" min="0.01" max="100" step="0.01">
+        <button id="addFundBtn">Add Fund</button>
+      </div>
+
+      <div class="alloc-summary">
+        <div class="alloc-progress-row">
+          <span class="alloc-label">Total allocated:</span>
+          <div class="alloc-bar-wrap">
+            <div id="allocBar" class="alloc-bar" style="width:0%"></div>
+          </div>
+          <strong id="totalAlloc" class="alloc-total">0%</strong>
+          <span id="allocRemaining" class="alloc-remaining">100% remaining</span>
+        </div>
+        <span id="allocWarning" class="warning hidden">Must equal 100% to analyze</span>
+      </div>
+
+      <div class="actions">
+        <button id="analyzeBtn" class="primary" disabled>Analyze Portfolio</button>
+        <button id="clearFundsBtn" class="secondary">Clear All</button>
+      </div>
+    </section>
+
+    <!-- Loading -->
+    <div id="loadingMsg" class="loading hidden">
+      <div class="spinner"></div>
+      <span id="loadingText">Fetching holdings...</span>
+    </div>
+
+    <!-- Results -->
+    <section id="resultsSection" class="card hidden">
+      <div class="results-header">
+        <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via stockanalysis.com</span></h2>
+        <div>
+          <button id="exportBtn">Download CSV</button>
+        </div>
+      </div>
+
+      <div id="dataSourcesInfo" class="data-sources hidden"></div>
+
+      <div class="filter-row">
+        <input type="text" id="searchBox" placeholder="Search ticker or name...">
+        <label>
+          <input type="checkbox" id="top20Only"> Top 20 only
+        </label>
+      </div>
+
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th class="sortable" data-col="asset">Ticker</th>
+            <th class="sortable" data-col="name">Name</th>
+            <th class="sortable active" data-col="portfolioPct">Portfolio %</th>
+            <th>Held In</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+
+      <div id="fetchErrors" class="error-list hidden"></div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+
+  <script>
+    const ACCENTURE_FUNDS = [
+      { ticker: 'CGNPF',  type: 'mutual' },
+      { ticker: 'FIDCD',  type: 'mutual' },
+      { ticker: 'FDICL',  type: 'mutual' },
+      { ticker: 'FDOTC',  type: 'mutual' },
+      { ticker: 'VEMRX',  type: 'mutual' },
+      { ticker: 'VIGIX',  type: 'mutual' },
+      { ticker: 'VGINF',  type: 'mutual' },
+      { ticker: 'VMCPX',  type: 'mutual' },
+      { ticker: 'VGSNX',  type: 'mutual' },
+      { ticker: 'VSCPX',  type: 'mutual' },
+      { ticker: 'VTISF',  type: 'mutual' },
+      { ticker: 'VIVIX',  type: 'mutual' },
+    ];
+
+    const portfolioTypeSelect = document.getElementById('portfolioType');
+    const fundAddRow          = document.getElementById('fundAddRow');
+    const accentureNameRow    = document.getElementById('accentureNameRow');
+    const fundsBody           = document.getElementById('fundsBody');
+
+    function buildAccentureFundRows() {
+      // Clear existing rows
+      fundsBody.innerHTML = '';
+
+      ACCENTURE_FUNDS.forEach(fund => {
+        const tr = document.createElement('tr');
+        tr.dataset.ticker = fund.ticker;
+        tr.dataset.type   = fund.type;
+        tr.innerHTML = `
+          <td><strong>${fund.ticker}</strong></td>
+          <td>Mutual Fund</td>
+          <td>
+            <input
+              type="number"
+              class="alloc-input"
+              data-ticker="${fund.ticker}"
+              placeholder="%"
+              min="0"
+              max="100"
+              step="0.01"
+              style="width:70px"
+            >
+          </td>
+          <td><em class="locked-label">locked</em></td>
+        `;
+        fundsBody.appendChild(tr);
+      });
+
+      // Wire up allocation inputs to update the total
+      fundsBody.querySelectorAll('.alloc-input').forEach(input => {
+        input.addEventListener('input', syncAccentureAllocations);
+      });
+    }
+
+    function syncAccentureAllocations() {
+      // Read all allocation inputs and push values into the app's fund model
+      // by dispatching the same events/data structures your existing app.js uses.
+      // We also update the progress bar directly.
+      let total = 0;
+      fundsBody.querySelectorAll('.alloc-input').forEach(input => {
+        total += parseFloat(input.value) || 0;
+      });
+
+      total = Math.round(total * 100) / 100;
+
+      const pct = Math.min(total, 100);
+      document.getElementById('allocBar').style.width  = pct + '%';
+      document.getElementById('totalAlloc').textContent = total + '%';
+      document.getElementById('allocRemaining').textContent =
+        total <= 100 ? (Math.round((100 - total) * 100) / 100) + '% remaining' : 'Over by ' + Math.round((total - 100) * 100) / 100 + '%';
+
+      const warning = document.getElementById('allocWarning');
+      const analyzeBtn = document.getElementById('analyzeBtn');
+
+      if (total !== 100) {
+        warning.classList.remove('hidden');
+        analyzeBtn.disabled = true;
+      } else {
+        warning.classList.add('hidden');
+        analyzeBtn.disabled = false;
+      }
+    }
+
+    function applyPortfolioType(type) {
+      if (type === 'accenture401k') {
+        fundAddRow.classList.add('hidden');
+        accentureNameRow.classList.remove('hidden');
+        buildAccentureFundRows();
+
+        // Mirror portfolio name field to the main portfolioName input
+        document.getElementById('accenturePortfolioName').addEventListener('input', function () {
+          document.getElementById('portfolioName').value = this.value;
+        });
+      } else {
+        fundAddRow.classList.remove('hidden');
+        accentureNameRow.classList.add('hidden');
+        fundsBody.innerHTML = '';
+        // Reset allocation bar
+        document.getElementById('allocBar').style.width = '0%';
+        document.getElementById('totalAlloc').textContent = '0%';
+        document.getElementById('allocRemaining').textContent = '100% remaining';
+        document.getElementById('allocWarning').classList.add('hidden');
+        document.getElementById('analyzeBtn').disabled = true;
+      }
+    }
+
+    portfolioTypeSelect.addEventListener('change', function () {
+      applyPortfolioType(this.value);
+    });
+  </script>
+
+</body>
+</html>
