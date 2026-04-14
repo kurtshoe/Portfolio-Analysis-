@@ -24,7 +24,6 @@ const MIME = {
 
 function serveStatic(req, res) {
   let filePath = path.join(STATIC_DIR, req.url === '/' ? 'index.html' : req.url);
-  // Prevent path traversal outside project dir
   if (!filePath.startsWith(STATIC_DIR)) { res.writeHead(403); res.end(); return; }
   const ext = path.extname(filePath);
   fs.readFile(filePath, (err, data) => {
@@ -35,8 +34,6 @@ function serveStatic(req, res) {
 }
 
 // ── Portfolio storage ─────────────────────────────────────────────────────────
-// Uses MongoDB when MONGODB_URI env var is set (cloud), file-based otherwise (local).
-
 const MONGODB_URI      = process.env.MONGODB_URI;
 const PORTFOLIOS_FILE  = path.join(__dirname, 'portfolios.json');
 let   dbCollection     = null;
@@ -50,7 +47,7 @@ async function initDb() {
   console.log('  Storage: MongoDB Atlas');
 }
 
-// ── File-based helpers (local dev) ────────────────────────────────────────────
+// ── File-based helpers ────────────────────────────────────────────────────────
 function loadStore() {
   try { return JSON.parse(fs.readFileSync(PORTFOLIOS_FILE, 'utf8')); }
   catch { return {}; }
@@ -60,17 +57,19 @@ function saveStore(store) {
 }
 
 // ── Unified portfolio CRUD ────────────────────────────────────────────────────
-async function dbList(email) {
+async function dbList(email, portfolioType) {
   if (dbCollection) {
     const doc = await dbCollection.findOne({ email });
     const portfolios = doc?.portfolios || {};
     return Object.entries(portfolios)
+      .filter(([, p]) => !portfolioType || (p.portfolioType || 'custom') === portfolioType)
       .map(([name, p]) => ({ name, savedAt: p.savedAt, fundCount: p.funds.length }))
       .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
   }
   const store      = loadStore();
   const portfolios = store[email] || {};
   return Object.entries(portfolios)
+    .filter(([, p]) => !portfolioType || (p.portfolioType || 'custom') === portfolioType)
     .map(([name, p]) => ({ name, savedAt: p.savedAt, fundCount: p.funds.length }))
     .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
 }
@@ -84,19 +83,19 @@ async function dbLoad(email, name) {
   return store[email]?.[name] || null;
 }
 
-async function dbSave(email, name, funds) {
+async function dbSave(email, name, funds, portfolioType) {
   const savedAt = new Date().toISOString();
   if (dbCollection) {
     await dbCollection.updateOne(
       { email },
-      { $set: { [`portfolios.${name}`]: { funds, savedAt } } },
+      { $set: { [`portfolios.${name}`]: { funds, savedAt, portfolioType: portfolioType || 'custom' } } },
       { upsert: true }
     );
     return;
   }
   const store = loadStore();
   if (!store[email]) store[email] = {};
-  store[email][name] = { funds, savedAt };
+  store[email][name] = { funds, savedAt, portfolioType: portfolioType || 'custom' };
   saveStore(store);
 }
 
@@ -152,12 +151,9 @@ async function scrapeStockAnalysis(ticker, type) {
   console.log(`  stockanalysis.com response: ${res.status}, ${res.body.length} bytes`);
   if (res.status >= 400) throw new Error(`stockanalysis.com returned HTTP ${res.status}`);
 
-  // stockanalysis.com uses Next.js — data is in __NEXT_DATA__
-  // Data is embedded as an unquoted JS object: data:{holdings:[{no:1,n:"...",s:"$TICK",as:"7.48%",...}]}
   const holdingsStart = res.body.indexOf('data:{holdings:[');
   if (holdingsStart === -1) throw new Error('holdings array not found in stockanalysis.com page');
 
-  // Find the '[' and extract the full array by bracket counting
   const arrOpen = res.body.indexOf('[', holdingsStart);
   let depth = 0, i = arrOpen;
   for (; i < res.body.length; i++) {
@@ -166,8 +162,6 @@ async function scrapeStockAnalysis(ticker, type) {
     else if (ch === ']' || ch === '}') { depth--; if (depth === 0) { i++; break; } }
   }
   const rawArr = res.body.slice(arrOpen, i);
-
-  // Convert unquoted JS keys to quoted JSON keys, then parse
   const jsonArr = rawArr.replace(/([{,])(\w+):/g, '$1"$2":');
   const arr = JSON.parse(jsonArr);
   if (!arr.length) throw new Error('Parsed holdings array is empty');
@@ -175,10 +169,6 @@ async function scrapeStockAnalysis(ticker, type) {
   return arr;
 }
 
-/**
- * Recursively search an object tree for an array that looks like fund holdings.
- * Handles both Yahoo Finance shape (holdingPercent) and stockanalysis.com shape (weight).
- */
 function findHoldingsArray(node, depth = 0) {
   if (depth > 20 || node === null || node === undefined) return null;
 
@@ -213,22 +203,19 @@ function findHoldingsArray(node, depth = 0) {
   return null;
 }
 
-/** Normalise a scraped holding (Yahoo or stockanalysis.com) to { asset, name, weightPercentage } */
 function normaliseHolding(h) {
-  // stockanalysis.com uses compact keys: s="$NVDA", n="Nvidia Corp", as="7.48%"
   const rawSymbol = h.s || h.symbol || h.ticker || '';
   const symbol    = rawSymbol.replace(/^\$/, '').toUpperCase();
   const name      = h.n || h.holdingName || h.name || h.companyName || '';
 
-  // as="7.48%" (string) or numeric weight/holdingPercent
   let pct;
   if (h.as && typeof h.as === 'string') {
-    pct = parseFloat(h.as.replace('%', '')) || 0;  // already 0–100
+    pct = parseFloat(h.as.replace('%', '')) || 0;
   } else {
     pct = h.holdingPercent ?? h.weight ?? h.weightPercentage ?? h.pct ?? 0;
     if (pct && typeof pct === 'object') pct = pct.raw ?? 0;
     pct = parseFloat(pct) || 0;
-    if (pct <= 1.5) pct *= 100;  // convert 0–1 fraction to 0–100
+    if (pct <= 1.5) pct *= 100;
   }
 
   return { asset: symbol, name, weightPercentage: pct };
@@ -303,7 +290,6 @@ async function getHoldings(ticker, type) {
     console.warn(`  Scrape failed: ${scrapeWarning}`);
   }
 
-  // Fallback: Yahoo Finance API (10 holdings)
   const holdings = await fetchViaApi(ticker);
   return {
     holdings,
@@ -325,10 +311,11 @@ const server = http.createServer(async (req, res) => {
 
   // ── Portfolio list ──────────────────────────────────────────────────────────
   if (url.pathname === '/portfolio/list') {
-    const email = (url.searchParams.get('email') || '').trim().toLowerCase();
+    const email         = (url.searchParams.get('email')         || '').trim().toLowerCase();
+    const portfolioType = (url.searchParams.get('portfolioType') || '').trim();
     if (!email) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email' })); return; }
     try {
-      const list = await dbList(email);
+      const list = await dbList(email, portfolioType);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(list));
     } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
@@ -355,9 +342,9 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { email, name, funds } = JSON.parse(body);
+        const { email, name, funds, portfolioType } = JSON.parse(body);
         if (!email || !name || !funds) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing fields' })); return; }
-        await dbSave(email.toLowerCase(), name, funds);
+        await dbSave(email.toLowerCase(), name, funds, portfolioType);
         console.log(`  Saved portfolio "${name}" for ${email}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
@@ -407,7 +394,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 initDb().then(() => server.listen(PORT, '0.0.0.0', () => {
-  // Show all usable network addresses
   const { networkInterfaces } = require('os');
   const nets = networkInterfaces();
   const ips  = ['localhost'];
