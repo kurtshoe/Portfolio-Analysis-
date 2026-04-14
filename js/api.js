@@ -1,3 +1,34 @@
+const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
+
+function serverBase() {
+  if (window.location.port === '3001') return '';
+  return localStorage.getItem('serverUrl') || DEPLOYED_SERVER_URL;
+}
+
+const LOCAL_PROXY = () => `${serverBase()}/holdings`;
+const YF_BASE     = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary';
+const YF_BASE2    = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary';
+
+const EXT_PROXIES = [
+  url => `https://corsproxy.io/?${url}`,
+  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+];
+
+async function fetchWithExtProxy(yfUrl) {
+  const errors = [];
+  for (const buildProxy of EXT_PROXIES) {
+    try {
+      const res = await fetch(buildProxy(yfUrl), { headers: { Accept: 'application/json' } });
+      if (!res.ok) { errors.push(`HTTP ${res.status}`); continue; }
+      const json = await res.json();
+      return typeof json.contents === 'string' ? JSON.parse(json.contents) : json;
+    } catch (e) {
+      errors.push(e.message);
+    }
+  }
+  throw new Error('External proxies failed: ' + errors.join('; '));
+}
+
 async function fetchHoldings(ticker, type = 'etf') {
   ticker = ticker.toUpperCase();
 
@@ -37,21 +68,6 @@ async function fetchHoldings(ticker, type = 'etf') {
     count:   holdings.length,
     warning: 'Local proxy not running — start server.js for 25 holdings'
   };
-}
-
-async function fetchWithExtProxy(yfUrl) {
-  const errors = [];
-  for (const buildProxy of EXT_PROXIES) {
-    try {
-      const res = await fetch(buildProxy(yfUrl), { headers: { Accept: 'application/json' } });
-      if (!res.ok) { errors.push(`HTTP ${res.status}`); continue; }
-      const json = await res.json();
-      return typeof json.contents === 'string' ? JSON.parse(json.contents) : json;
-    } catch (e) {
-      errors.push(e.message);
-    }
-  }
-  throw new Error('External proxies failed: ' + errors.join('; '));
 }
 
 function parseYahooApiResponse(json, ticker) {

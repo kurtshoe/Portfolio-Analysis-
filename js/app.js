@@ -334,12 +334,7 @@ function escapeHtml(str) {
 }
 
 // ── Portfolio save / load ─────────────────────────────────────────────────────
-const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
 
-function serverBase() {
-  if (window.location.port === '3001') return '';
-  return localStorage.getItem('serverUrl') || DEPLOYED_SERVER_URL;
-}
 
 function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
 
