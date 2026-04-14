@@ -7,7 +7,12 @@ let sortDir = -1;
 let currentPortfolioType = '';
 
 const ACCENTURE_FUNDS = [
-  'VEMRX','VIGIX','VMCPX','VGSNX','VSCPX','VIVIX'
+  { ticker: 'VEMRX', name: 'Vanguard Emerging Markets Stock Index Fund Admiral Shares' },
+  { ticker: 'VIGIX', name: 'Vanguard Growth Index Fund Institutional Shares' },
+  { ticker: 'VMCPX', name: 'Vanguard Mid-Cap Index Fund Institutional Plus Shares' },
+  { ticker: 'VGSNX', name: 'Vanguard Real Estate Index Fund Admiral Shares' },
+  { ticker: 'VSCPX', name: 'Vanguard Small-Cap Index Fund Institutional Plus Shares' },
+  { ticker: 'VIVIX', name: 'Vanguard Value Index Fund Institutional Shares' },
 ];
 
 // -- Portfolio type selection ---------------------------------------------
@@ -51,12 +56,12 @@ portfolioTypeSelect.addEventListener('change', function () {
 // -- Accenture 401K fund rows ---------------------------------------------
 function buildAccentureFundRows() {
   const tbody = document.getElementById('fundsBody');
-  tbody.innerHTML = ACCENTURE_FUNDS.map(ticker => `
-    <tr data-ticker="${ticker}">
-      <td><strong>${ticker}</strong></td>
-      <td>Mutual Fund</td>
+  tbody.innerHTML = ACCENTURE_FUNDS.map(fund => `
+    <tr data-ticker="${fund.ticker}">
+      <td><strong>${fund.ticker}</strong></td>
+      <td>${fund.name}</td>
       <td>
-        <input type="number" class="alloc-edit accenture-alloc" data-ticker="${ticker}"
+        <input type="number" class="alloc-edit accenture-alloc" data-ticker="${fund.ticker}"
           placeholder="%" min="0" max="100" step="0.01" style="width:70px">
         <span class="alloc-pct-symbol">%</span>
       </td>
