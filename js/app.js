@@ -1,68 +1,75 @@
-const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
+// -- State ----------------------------------------------------------------
+let funds = [];
+let aggregated = [];
+let fetchMeta  = [];
+let sortCol = 'portfolioPct';
+let sortDir = -1;
+let currentPortfolioType = '';
 
-function serverBase() {
-  if (window.location.port === '3001') return '';
-  return localStorage.getItem('serverUrl') || DEPLOYED_SERVER_URL;
-}
-
-const LOCAL_PROXY = () => `${serverBase()}/holdings`;
-const YF_BASE     = 'https://query1.finance.yahoo.com/v10/finance/quoteSummary';
-const YF_BASE2    = 'https://query2.finance.yahoo.com/v10/finance/quoteSummary';
-
-const EXT_PROXIES = [
-  url => `https://corsproxy.io/?${url}`,
-  url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+const ACCENTURE_FUNDS = [
+  'CGNPF','FIDCD','FDICL','FDOTC','VEMRX',
+  'VIGIX','VGINF','VMCPX','VGSNX','VSCPX','VTISF','VIVIX'
 ];
 
-async function fetchWithExtProxy(yfUrl) {
-  const errors = [];
-  for (const buildProxy of EXT_PROXIES) {
-    try {
-      const res = await fetch(buildProxy(yfUrl), { headers: { Accept: 'application/json' } });
-      if (!res.ok) { errors.push(`HTTP ${res.status}`); continue; }
-      const json = await res.json();
-      return typeof json.contents === 'string' ? JSON.parse(json.contents) : json;
-    } catch (e) {
-      errors.push(e.message);
-    }
+// -- Portfolio type selection ---------------------------------------------
+const portfolioTypeSelect  = document.getElementById('portfolioType');
+const portfolioContent     = document.getElementById('portfolioContent');
+const blankState           = document.getElementById('blankState');
+const fundAllocSection     = document.getElementById('fundAllocSection');
+const fundAddRow           = document.getElementById('fundAddRow');
+const accentureNameRow     = document.getElementById('accentureNameRow');
+
+portfolioTypeSelect.addEventListener('change', function () {
+  currentPortfolioType = this.value;
+  blankState.classList.add('hidden');
+  portfolioContent.classList.remove('hidden');
+  fundAllocSection.classList.remove('hidden');
+
+  funds = [];
+  aggregated = [];
+  document.getElementById('resultsSection').classList.add('hidden');
+  document.getElementById('portfolioName').value = '';
+  document.getElementById('accenturePortfolioName').value = '';
+
+  if (currentPortfolioType === 'accenture401k') {
+    fundAddRow.classList.add('hidden');
+    accentureNameRow.classList.remove('hidden');
+    buildAccentureFundRows();
+  } else {
+    fundAddRow.classList.remove('hidden');
+    accentureNameRow.classList.add('hidden');
+    renderFundsTable();
   }
-  throw new Error('External proxies failed: ' + errors.join('; '));
+
+  const email = getEmail();
+  if (email) lookupPortfolios(email);
+  else {
+    document.getElementById('savedPortfoliosWrap').classList.add('hidden');
+    document.getElementById('saveWrap').classList.remove('hidden');
+  }
+});
+
+// -- Accenture 401K fund rows ---------------------------------------------
+function buildAccentureFundRows() {
+  const tbody = document.getElementById('fundsBody');
+  tbody.innerHTML = ACCENTURE_FUNDS.map(ticker => `
+    <tr data-ticker="${ticker}">
+      <td><strong>${ticker}</strong></td>
+      <td>Mutual Fund</td>
+      <td>
+        <input type="number" class="alloc-edit accenture-alloc" data-ticker="${ticker}"
+          placeholder="%" min="0" max="100" step="0.01" style="width:70px">
+        <span class="alloc-pct-symbol">%</span>
+      </td>
+      <td><em style="color:#aaa;font-size:0.8rem">locked</em></td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('.accenture-alloc').forEach(input => {
+    input.addEventListener('input', syncAccentureToFunds);
+  });
 }
 
-async function fetchHoldings(ticker, type = 'etf') {
-  ticker = ticker.toUpperCase();
-
-  try {
-    const res = await fetch(`${LOCAL_PROXY()}?ticker=${encodeURIComponent(ticker)}&type=${encodeURIComponent(type || 'etf')}`, {
-      signal: AbortSignal.timeout(15000)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return {
-        holdings: data.holdings,
-        source:   data.source,
-        count:    data.count,
-        warning:  data.warning || null
-      };
-    }
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Proxy HTTP ${res.status}`);
-  } catch (e) {
-    throw e;
-  }
-}
-
-function parseYahooApiResponse(json, ticker) {
-  const result = json?.quoteSummary?.result?.[0]?.topHoldings;
-  if (!result) {
-    const errMsg = json?.quoteSummary?.error?.description || 'No holdings data found';
-    throw new Error(errMsg);
-  }
-  const holdings = result.holdings || [];
-  if (holdings.length === 0) throw new Error('No holdings returned — ticker may not be a fund');
-  return holdings.map(h => ({
-    asset:            (h.symbol      || '').toUpperCase(),
-    name:             h.holdingName  || '',
-    weightPercentage: (h.holdingPercent?.raw ?? 0) * 100
-  }));
-}
+function syncAccentureToFunds() {
+  funds = [];
+  doc
