@@ -7,8 +7,7 @@ let sortDir = -1;
 let currentPortfolioType = '';
 
 const ACCENTURE_FUNDS = [
-  'CGNPF','FIDCD','FDICL','FDOTC','VEMRX',
-  'VIGIX','VGINF','VMCPX','VGSNX','VSCPX','VTISF','VIVIX'
+  'VEMRX','VIGIX','VMCPX','VGSNX','VSCPX','VIVIX'
 ];
 
 // -- Portfolio type selection ---------------------------------------------
@@ -64,6 +63,12 @@ function buildAccentureFundRows() {
       <td><em style="color:#aaa;font-size:0.8rem">locked</em></td>
     </tr>
   `).join('');
+
+  const note = document.createElement('tr');
+  note.innerHTML = `<td colspan="4" style="font-style:italic;color:#aaa;font-size:0.85rem;padding:0.75rem 0.5rem">
+    Accenture funds not listed above do not publish their holdings publicly.
+  </td>`;
+  tbody.appendChild(note);
 
   tbody.querySelectorAll('.accenture-alloc').forEach(input => {
     input.addEventListener('input', syncAccentureToFunds);
