@@ -10,6 +10,8 @@ const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
 const PORT  = process.env.PORT || 3001;
+console.log('PORT env var:', process.env.PORT);
+console.log('Listening on port:', PORT);
 
 const STATIC_DIR = __dirname;
 const MIME = {
