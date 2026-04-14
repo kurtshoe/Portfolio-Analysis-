@@ -137,7 +137,7 @@ function fetchUrl(url, options = {}) {
 
 // ── Method 1: stockanalysis.com page scrape (25 holdings) ────────────────────
 async function scrapeStockAnalysis(ticker, type) {
-  const segment = type === 'mutual' ? 'mutual-fund' : 'etf';
+  const segment = type === 'mutual' ? 'quote/mutf' : 'etf';
   const url = `https://stockanalysis.com/${segment}/${ticker.toLowerCase()}/holdings/`;
 
   const res = await fetchUrl(url, {
