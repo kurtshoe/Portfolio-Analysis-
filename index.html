@@ -41,34 +41,40 @@
           </select>
         </div>
 
-        <!-- Blank state shown until a type is selected -->
         <div id="blankState" class="blank-state">
           <p>Select a portfolio type above to get started.</p>
         </div>
 
-        <!-- Shown after type is selected -->
         <div id="portfolioContent" class="hidden">
-
           <div id="savedPortfoliosWrap" class="hidden">
             <div class="saved-header">Saved portfolios:</div>
             <div id="savedList" class="saved-list"></div>
           </div>
-
           <div id="saveWrap">
             <div class="save-row">
               <input type="text" id="portfolioName" placeholder="Portfolio name (e.g. Retirement)">
               <button id="saveBtn" disabled title="Run an analysis first">Save Portfolio</button>
             </div>
           </div>
-
         </div>
 
       </div>
     </section>
 
-    <!-- Fund Allocations — hidden until type selected -->
+    <!-- Fund Allocations -->
     <section id="fundAllocSection" class="card hidden">
       <h2>Fund Allocations</h2>
+
+      <!-- Global allocation mode selector -->
+      <div class="alloc-mode-row">
+        <label for="allocMode">Allocation input type:</label>
+        <select id="allocMode">
+          <option value="pct">Percentage (%)</option>
+          <option value="dollar">Dollar Amount ($)</option>
+          <option value="shares">Number of Shares</option>
+        </select>
+        <span id="allocModeHint" class="alloc-mode-hint"></span>
+      </div>
 
       <div id="accentureNameRow" class="accenture-name-row hidden">
         <label for="accenturePortfolioName">Portfolio name:</label>
@@ -79,8 +85,8 @@
         <thead>
           <tr>
             <th>Ticker</th>
-            <th>Type</th>
-            <th>Allocation %</th>
+            <th id="typeColHeader">Type</th>
+            <th id="allocColHeader">Allocation %</th>
             <th></th>
           </tr>
         </thead>
@@ -92,9 +98,10 @@
         <select id="newType">
           <option value="etf">ETF / Index Fund</option>
           <option value="mutual">Mutual Fund</option>
+          <option value="stock">Stock</option>
         </select>
-        <input type="number" id="newAlloc" placeholder="%" min="0.01" max="100" step="0.01">
-        <button id="addFundBtn">Add Fund</button>
+        <input type="number" id="newAlloc" placeholder="%" min="0.01" step="0.01">
+        <button id="addFundBtn">Add</button>
       </div>
 
       <div class="alloc-summary">
@@ -146,6 +153,7 @@
             <th class="sortable" data-col="asset">Ticker</th>
             <th class="sortable" data-col="name">Name</th>
             <th class="sortable active" data-col="portfolioPct">Portfolio %</th>
+            <th id="dollarColHeader" class="sortable hidden" data-col="portfolioDollar">Dollar Value</th>
             <th>Held In</th>
           </tr>
         </thead>

@@ -366,6 +366,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Price lookup ───────────────────────────────────────────────────────────
+  if (url.pathname === '/price') {
+    const ticker = (url.searchParams.get('ticker') || '').trim().toUpperCase();
+    if (!ticker) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing ticker' })); return; }
+    try {
+      if (!yfCrumb) await refreshCrumb();
+      const priceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d&crumb=${encodeURIComponent(yfCrumb)}`;
+      const r = await fetchUrl(priceUrl, {
+        headers: { 'User-Agent': UA, 'Cookie': yfCookie, 'Accept': 'application/json' }
+      });
+      const json  = JSON.parse(r.body);
+      const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (!price) throw new Error('Price not found');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ticker, price }));
+    } catch (e) {
+      res.writeHead(502); res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   if (url.pathname !== '/holdings') {
     serveStatic(req, res);
     return;

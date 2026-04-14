@@ -1,3 +1,4 @@
+// js/app.js
 // -- State ----------------------------------------------------------------
 let funds = [];
 let aggregated = [];
@@ -5,6 +6,8 @@ let fetchMeta  = [];
 let sortCol = 'portfolioPct';
 let sortDir = -1;
 let currentPortfolioType = '';
+let allocMode = 'pct'; // 'pct' | 'dollar' | 'shares'
+let totalPortfolioValue = 0; // used when allocMode !== 'pct'
 
 const ACCENTURE_FUNDS = [
   { ticker: 'VEMRX', name: 'Vanguard Emerging Markets Stock Index Fund Admiral Shares' },
@@ -15,13 +18,51 @@ const ACCENTURE_FUNDS = [
   { ticker: 'VIVIX', name: 'Vanguard Value Index Fund Institutional Shares' },
 ];
 
+// -- Alloc mode selector --------------------------------------------------
+const allocModeSelect = document.getElementById('allocMode');
+const allocModeHint   = document.getElementById('allocModeHint');
+
+allocModeSelect.addEventListener('change', function () {
+  allocMode = this.value;
+  updateAllocModeUI();
+  if (currentPortfolioType === 'accenture401k') buildAccentureFundRows();
+  else renderFundsTable();
+});
+
+function updateAllocModeUI() {
+  const header = document.getElementById('allocColHeader');
+  const hint   = document.getElementById('allocModeHint');
+  const newAllocInput = document.getElementById('newAlloc');
+
+  if (allocMode === 'pct') {
+    header.textContent = 'Allocation %';
+    newAllocInput.placeholder = '%';
+    hint.textContent = '';
+    document.getElementById('allocWarning').textContent = 'Must equal 100% to analyze';
+    document.getElementById('allocRemaining').className = 'alloc-remaining';
+  } else if (allocMode === 'dollar') {
+    header.textContent = 'Dollar Amount ($)';
+    newAllocInput.placeholder = '$';
+    hint.textContent = 'Enter dollar value of each holding — live prices used for stocks';
+  } else {
+    header.textContent = 'Shares';
+    newAllocInput.placeholder = '# shares';
+    hint.textContent = 'Enter number of shares — live prices fetched to calculate weights';
+  }
+
+  // Hide/show % alloc bar for non-pct modes
+  const summaryRow = document.querySelector('.alloc-progress-row');
+  summaryRow.style.display = allocMode === 'pct' ? '' : 'none';
+  document.getElementById('allocWarning').classList.add('hidden');
+}
+
 // -- Portfolio type selection ---------------------------------------------
-const portfolioTypeSelect  = document.getElementById('portfolioType');
-const portfolioContent     = document.getElementById('portfolioContent');
-const blankState           = document.getElementById('blankState');
-const fundAllocSection     = document.getElementById('fundAllocSection');
-const fundAddRow           = document.getElementById('fundAddRow');
-const accentureNameRow     = document.getElementById('accentureNameRow');
+const portfolioTypeSelect = document.getElementById('portfolioType');
+const portfolioContent    = document.getElementById('portfolioContent');
+const blankState          = document.getElementById('blankState');
+const fundAllocSection    = document.getElementById('fundAllocSection');
+const fundAddRow          = document.getElementById('fundAddRow');
+const accentureNameRow    = document.getElementById('accentureNameRow');
 
 portfolioTypeSelect.addEventListener('change', function () {
   currentPortfolioType = this.value;
@@ -45,6 +86,8 @@ portfolioTypeSelect.addEventListener('change', function () {
     renderFundsTable();
   }
 
+  updateAllocModeUI();
+
   const email = getEmail();
   if (email) lookupPortfolios(email);
   else {
@@ -56,14 +99,16 @@ portfolioTypeSelect.addEventListener('change', function () {
 // -- Accenture 401K fund rows ---------------------------------------------
 function buildAccentureFundRows() {
   const tbody = document.getElementById('fundsBody');
+  const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? '# shares' : '%';
+
   tbody.innerHTML = ACCENTURE_FUNDS.map(fund => `
     <tr data-ticker="${fund.ticker}">
       <td><strong>${fund.ticker}</strong></td>
       <td>${fund.name}</td>
       <td>
         <input type="number" class="alloc-edit accenture-alloc" data-ticker="${fund.ticker}"
-          placeholder="%" min="0" max="100" step="0.01" style="width:70px">
-        <span class="alloc-pct-symbol">%</span>
+          placeholder="${allocLabel}" min="0" step="0.01" style="width:90px">
+        <span class="alloc-pct-symbol">${allocLabel}</span>
       </td>
       <td><em style="color:#aaa;font-size:0.8rem">locked</em></td>
     </tr>
@@ -86,24 +131,26 @@ function syncAccentureToFunds() {
     const val = parseFloat(input.value);
     if (val > 0) funds.push({ ticker: input.dataset.ticker, type: 'mutual', alloc: val });
   });
-  updateAllocSummary();
+  if (allocMode === 'pct') updateAllocSummary();
 }
 
 // -- Fund table (custom) --------------------------------------------------
 function renderFundsTable() {
   document.getElementById('saveBtn').disabled = true;
   const tbody = document.getElementById('fundsBody');
+  const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? 'shares' : '%';
+
   if (funds.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;font-style:italic;padding:0.75rem">No funds added yet.</td></tr>';
   } else {
     tbody.innerHTML = funds.map((f, i) => `
       <tr>
         <td class="ticker-cell">${escapeHtml(f.ticker)}</td>
-        <td>${f.type === 'mutual' ? 'Mutual Fund' : 'ETF / Index'}</td>
+        <td>${f.type === 'mutual' ? 'Mutual Fund' : f.type === 'stock' ? 'Stock' : 'ETF / Index'}</td>
         <td>
-          <input class="alloc-edit" type="number" value="${f.alloc}" min="0.01" max="100" step="0.01"
-            onchange="updateAlloc(${i}, this.value)" title="Edit allocation %">
-          <span class="alloc-pct-symbol">%</span>
+          <input class="alloc-edit" type="number" value="${f.alloc}" min="0.01" step="0.01"
+            onchange="updateAlloc(${i}, this.value)" title="Edit allocation">
+          <span class="alloc-pct-symbol">${allocLabel}</span>
         </td>
         <td><button class="del-btn" onclick="removeFund(${i})" title="Remove">&times;</button></td>
       </tr>
@@ -113,9 +160,14 @@ function renderFundsTable() {
 }
 
 function updateAllocSummary() {
-  const total   = funds.reduce((sum, f) => sum + parseFloat(f.alloc || 0), 0);
-  const rounded = Math.round(total * 100) / 100;
-  const capped  = Math.min(rounded, 100);
+  if (allocMode !== 'pct') {
+    document.getElementById('analyzeBtn').disabled = funds.length === 0;
+    return;
+  }
+
+  const total     = funds.reduce((sum, f) => sum + parseFloat(f.alloc || 0), 0);
+  const rounded   = Math.round(total * 100) / 100;
+  const capped    = Math.min(rounded, 100);
   const remaining = Math.round((100 - rounded) * 100) / 100;
 
   document.getElementById('totalAlloc').textContent = rounded + '%';
@@ -154,8 +206,10 @@ document.getElementById('addFundBtn').addEventListener('click', () => {
   const alloc  = parseFloat(document.getElementById('newAlloc').value);
 
   if (!ticker)                    { showToast('Enter a ticker symbol.'); return; }
-  if (isNaN(alloc) || alloc <= 0) { showToast('Enter a valid allocation %.'); return; }
-  if (funds.some(f => f.ticker === ticker)) { showToast(`${ticker} already added.`); return; }
+  if (isNaN(alloc) || alloc <= 0) { showToast('Enter a valid allocation.'); return; }
+  if (type !== 'stock' && funds.some(f => f.ticker === ticker)) {
+    showToast(`${ticker} already added.`); return;
+  }
 
   funds.push({ ticker, type, alloc });
   document.getElementById('newTicker').value = '';
@@ -170,7 +224,7 @@ window.removeFund = function(i) {
 
 window.updateAlloc = function(i, val) {
   const parsed = parseFloat(val);
-  if (isNaN(parsed) || parsed <= 0) { showToast('Enter a valid allocation %.'); renderFundsTable(); return; }
+  if (isNaN(parsed) || parsed <= 0) { showToast('Enter a valid allocation.'); renderFundsTable(); return; }
   funds[i].alloc = parsed;
   updateAllocSummary();
 };
@@ -189,16 +243,60 @@ document.getElementById('clearFundsBtn').addEventListener('click', () => {
 document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
 
 async function runAnalysis() {
-  setLoading(true, `Fetching holdings for ${funds.length} fund(s)...`);
+  setLoading(true, 'Preparing analysis...');
   document.getElementById('resultsSection').classList.add('hidden');
   document.getElementById('fetchErrors').classList.add('hidden');
 
   const errors   = [];
   fetchMeta      = [];
   const stockMap = {};
-  const maxPct   = { val: 0 };
+  totalPortfolioValue = 0;
 
-  for (const fund of funds) {
+  // -- Step 1: resolve alloc values to dollar amounts if needed -----------
+  let resolvedFunds = [...funds];
+
+  if (allocMode === 'dollar') {
+    // For ETFs/mutual funds in dollar mode, dollar value is the alloc directly
+    // For stocks in dollar mode, dollar value is the alloc directly
+    totalPortfolioValue = resolvedFunds.reduce((s, f) => s + f.alloc, 0);
+  } else if (allocMode === 'shares') {
+    // Need to fetch prices for all entries to get dollar values
+    setLoading(true, 'Fetching live prices...');
+    for (const f of resolvedFunds) {
+      try {
+        const price = await fetchPrice(f.ticker);
+        f.dollarValue = f.alloc * price;
+      } catch (e) {
+        errors.push(`${f.ticker}: Could not fetch price — ${e.message}`);
+        f.dollarValue = 0;
+      }
+    }
+    totalPortfolioValue = resolvedFunds.reduce((s, f) => s + (f.dollarValue || 0), 0);
+  }
+
+  // -- Step 2: compute pct weights ----------------------------------------
+  if (allocMode !== 'pct') {
+    resolvedFunds = resolvedFunds.map(f => {
+      const dollarVal = allocMode === 'dollar' ? f.alloc : (f.dollarValue || 0);
+      return { ...f, pctWeight: totalPortfolioValue > 0 ? (dollarVal / totalPortfolioValue) * 100 : 0 };
+    });
+  } else {
+    resolvedFunds = resolvedFunds.map(f => ({ ...f, pctWeight: f.alloc }));
+  }
+
+  // -- Step 3: fetch holdings for ETFs/mutual funds -----------------------
+  for (const fund of resolvedFunds) {
+    if (fund.type === 'stock') {
+      // Direct stock — add straight to stockMap
+      const sym = fund.ticker.toUpperCase();
+      if (!stockMap[sym]) stockMap[sym] = { asset: sym, name: sym, portfolioPct: 0, portfolioDollar: 0, funds: [] };
+      stockMap[sym].portfolioPct    += fund.pctWeight;
+      stockMap[sym].portfolioDollar += allocMode === 'dollar' ? fund.alloc : (fund.dollarValue || 0);
+      stockMap[sym].funds.push(fund.ticker + ' (direct)');
+      fetchMeta.push({ ticker: fund.ticker, source: 'direct holding', count: 1, warning: null });
+      continue;
+    }
+
     setLoading(true, `Fetching ${fund.ticker}...`);
     try {
       const result   = await fetchHoldings(fund.ticker, fund.type);
@@ -212,19 +310,23 @@ async function runAnalysis() {
       });
 
       if (!Array.isArray(holdings) || holdings.length === 0) {
-        errors.push(`${fund.ticker}: No holdings data returned. Check ticker or fund type.`);
+        errors.push(`${fund.ticker}: No holdings data returned.`);
         continue;
       }
 
       for (const h of holdings) {
         const sym  = (h.asset || '').toUpperCase();
         const name = h.name || '';
-        const contribution = (parseFloat(h.weightPercentage) || 0) / 100 * fund.alloc;
+        const contribution    = (parseFloat(h.weightPercentage) || 0) / 100 * fund.pctWeight;
+        const dollarContrib   = allocMode !== 'pct'
+          ? (parseFloat(h.weightPercentage) || 0) / 100 * (allocMode === 'dollar' ? fund.alloc : (fund.dollarValue || 0))
+          : 0;
+
         if (!sym || contribution <= 0) continue;
-        if (!stockMap[sym]) stockMap[sym] = { asset: sym, name, portfolioPct: 0, funds: [] };
-        stockMap[sym].portfolioPct += contribution;
+        if (!stockMap[sym]) stockMap[sym] = { asset: sym, name, portfolioPct: 0, portfolioDollar: 0, funds: [] };
+        stockMap[sym].portfolioPct    += contribution;
+        stockMap[sym].portfolioDollar += dollarContrib;
         stockMap[sym].funds.push(fund.ticker);
-        if (stockMap[sym].portfolioPct > maxPct.val) maxPct.val = stockMap[sym].portfolioPct;
       }
     } catch (err) {
       errors.push(`${fund.ticker}: ${err.message}`);
@@ -233,8 +335,6 @@ async function runAnalysis() {
   }
 
   aggregated = Object.values(stockMap);
-  aggregated.forEach(s => s._max = maxPct.val);
-
   setLoading(false);
   renderResults(errors);
   document.getElementById('saveBtn').disabled = aggregated.length === 0;
@@ -244,12 +344,17 @@ async function runAnalysis() {
 function renderResults(errors = []) {
   document.getElementById('resultsSection').classList.remove('hidden');
   document.getElementById('holdingsCount').textContent = aggregated.length;
+
+  // Show/hide dollar column
+  const dollarHeader = document.getElementById('dollarColHeader');
+  dollarHeader.classList.toggle('hidden', allocMode === 'pct');
+
   renderDataSources();
 
   if (aggregated.length === 0) {
     document.getElementById('resultsBody').innerHTML =
-      '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:1.5rem">' +
-      'No holdings data found. Check ticker symbols and fund types.</td></tr>';
+      '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1.5rem">' +
+      'No holdings data found.</td></tr>';
     if (errors.length) showErrors(errors);
     return;
   }
@@ -285,7 +390,7 @@ function renderResultsTable() {
 
   let rows = [...aggregated];
   rows.sort((a, b) => {
-    const av = a[sortCol] || '', bv = b[sortCol] || '';
+    const av = a[sortCol] ?? 0, bv = b[sortCol] ?? 0;
     if (typeof av === 'number') return (av - bv) * sortDir;
     return String(av).localeCompare(String(bv)) * sortDir;
   });
@@ -299,14 +404,19 @@ function renderResultsTable() {
   const tbody  = document.getElementById('resultsBody');
 
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:1rem">No results.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1rem">No results.</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map((r, i) => {
-    const barWidth = Math.max(2, Math.round((r.portfolioPct / maxPct) * 100));
-    const pctStr   = r.portfolioPct.toFixed(3) + '%';
-    const tags     = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
+    const barWidth  = Math.max(2, Math.round((r.portfolioPct / maxPct) * 100));
+    const pctStr    = r.portfolioPct.toFixed(3) + '%';
+    const dollarStr = allocMode !== 'pct'
+      ? '$' + r.portfolioDollar.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '';
+    const tags = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
+    const dollarCell = allocMode !== 'pct' ? `<td>${dollarStr}</td>` : '';
+
     return `<tr>
       <td style="color:#aaa;font-size:0.8rem">${i + 1}</td>
       <td style="font-family:monospace;font-weight:bold">${escapeHtml(r.asset)}</td>
@@ -317,6 +427,7 @@ function renderResultsTable() {
           <span class="pct-label">${pctStr}</span>
         </div>
       </td>
+      ${dollarCell}
       <td><div class="fund-tags">${tags}</div></td>
     </tr>`;
   }).join('');
@@ -344,15 +455,22 @@ document.getElementById('top20Only').addEventListener('change', renderResultsTab
 document.getElementById('exportBtn').addEventListener('click', () => {
   if (!aggregated.length) return;
   const rows    = [...aggregated].sort((a, b) => b.portfolioPct - a.portfolioPct);
-  const headers = ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Held In'];
+  const headers = allocMode !== 'pct'
+    ? ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Dollar Value', 'Held In']
+    : ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Held In'];
+
   const csv = [
     headers.join(','),
-    ...rows.map((r, i) => [
-      i + 1, r.asset,
-      `"${r.name.replace(/"/g, '""')}"`,
-      r.portfolioPct.toFixed(4),
-      [...new Set(r.funds)].join(' | ')
-    ].join(','))
+    ...rows.map((r, i) => {
+      const base = [
+        i + 1, r.asset,
+        `"${r.name.replace(/"/g, '""')}"`,
+        r.portfolioPct.toFixed(4),
+      ];
+      if (allocMode !== 'pct') base.push(r.portfolioDollar.toFixed(2));
+      base.push([...new Set(r.funds)].join(' | '));
+      return base.join(',');
+    })
   ].join('\n');
 
   const blob = new Blob([csv], { type: 'text/csv' });
@@ -450,6 +568,7 @@ async function loadPortfolio(name) {
     if (!res.ok) { showToast('Portfolio not found.'); return; }
     const p = await res.json();
     funds = p.funds;
+    if (p.allocMode) { allocMode = p.allocMode; allocModeSelect.value = allocMode; updateAllocModeUI(); }
 
     if (currentPortfolioType === 'accenture401k') {
       buildAccentureFundRows();
@@ -497,7 +616,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
     const res = await fetch(`${serverBase()}/portfolio/save`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ email, name, funds, portfolioType: currentPortfolioType })
+      body:    JSON.stringify({ email, name, funds, portfolioType: currentPortfolioType, allocMode })
     });
     if (!res.ok) { showToast('Save failed.'); return; }
     showToast(`Saved "${name}" successfully.`);

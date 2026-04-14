@@ -1,3 +1,4 @@
+// js/api.js
 const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
 
 function serverBase() {
@@ -27,6 +28,16 @@ async function fetchWithExtProxy(yfUrl) {
     }
   }
   throw new Error('External proxies failed: ' + errors.join('; '));
+}
+
+async function fetchPrice(ticker) {
+  const res = await fetch(`${serverBase()}/price?ticker=${encodeURIComponent(ticker)}`, {
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.price) throw new Error('No price returned');
+  return data.price;
 }
 
 async function fetchHoldings(ticker, type = 'etf') {
