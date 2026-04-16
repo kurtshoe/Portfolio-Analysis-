@@ -6,8 +6,9 @@ let fetchMeta  = [];
 let sortCol = 'portfolioPct';
 let sortDir = -1;
 let currentPortfolioType = '';
-let allocMode = 'pct'; // 'pct' | 'dollar' | 'shares'
-let totalPortfolioValue = 0; // used when allocMode !== 'pct'
+let allocMode = 'pct';
+let totalPortfolioValue = 0;
+let currentPortfolioName = '';
 
 const ACCENTURE_FUNDS = [
   { ticker: 'VEMRX', name: 'Vanguard Emerging Markets Stock Index Fund Admiral Shares' },
@@ -18,9 +19,17 @@ const ACCENTURE_FUNDS = [
   { ticker: 'VIVIX', name: 'Vanguard Value Index Fund Institutional Shares' },
 ];
 
+// -- Tooltip tap support (mobile) -----------------------------------------
+document.addEventListener('click', e => {
+  const wrap = e.target.closest('.tooltip-wrap');
+  document.querySelectorAll('.tooltip-wrap.active').forEach(el => {
+    if (el !== wrap) el.classList.remove('active');
+  });
+  if (wrap) wrap.classList.toggle('active');
+});
+
 // -- Alloc mode selector --------------------------------------------------
 const allocModeSelect = document.getElementById('allocMode');
-const allocModeHint   = document.getElementById('allocModeHint');
 
 allocModeSelect.addEventListener('change', function () {
   allocMode = this.value;
@@ -30,29 +39,27 @@ allocModeSelect.addEventListener('change', function () {
 });
 
 function updateAllocModeUI() {
-  const header = document.getElementById('allocColHeader');
-  const hint   = document.getElementById('allocModeHint');
+  const header        = document.getElementById('allocColHeader');
+  const hint          = document.getElementById('allocModeHint');
   const newAllocInput = document.getElementById('newAlloc');
+  const summaryRow    = document.querySelector('.alloc-progress-row');
 
   if (allocMode === 'pct') {
-    header.textContent = 'Allocation %';
-    newAllocInput.placeholder = '%';
-    hint.textContent = '';
-    document.getElementById('allocWarning').textContent = 'Must equal 100% to analyze';
-    document.getElementById('allocRemaining').className = 'alloc-remaining';
+    header.textContent          = 'Allocation %';
+    newAllocInput.placeholder   = '%';
+    hint.textContent            = '';
+    summaryRow.style.display    = '';
   } else if (allocMode === 'dollar') {
-    header.textContent = 'Dollar Amount ($)';
-    newAllocInput.placeholder = '$';
-    hint.textContent = 'Enter dollar value of each holding — live prices used for stocks';
+    header.textContent          = 'Dollar Amount ($)';
+    newAllocInput.placeholder   = '$';
+    hint.textContent            = 'Enter dollar value — live prices used for stocks';
+    summaryRow.style.display    = 'none';
   } else {
-    header.textContent = 'Shares';
-    newAllocInput.placeholder = '# shares';
-    hint.textContent = 'Enter number of shares — live prices fetched to calculate weights';
+    header.textContent          = 'Shares';
+    newAllocInput.placeholder   = '# shares';
+    hint.textContent            = 'Enter number of shares — live prices fetched to calculate weights';
+    summaryRow.style.display    = 'none';
   }
-
-  // Hide/show % alloc bar for non-pct modes
-  const summaryRow = document.querySelector('.alloc-progress-row');
-  summaryRow.style.display = allocMode === 'pct' ? '' : 'none';
   document.getElementById('allocWarning').classList.add('hidden');
 }
 
@@ -72,17 +79,26 @@ portfolioTypeSelect.addEventListener('change', function () {
 
   funds = [];
   aggregated = [];
+  currentPortfolioName = '';
   document.getElementById('resultsSection').classList.add('hidden');
   document.getElementById('portfolioName').value = '';
   document.getElementById('accenturePortfolioName').value = '';
+  document.getElementById('saveBtn').disabled = true;
+
+  const accentureNote      = document.getElementById('accentureNote');
+  const customInstructions = document.getElementById('customInstructions');
 
   if (currentPortfolioType === 'accenture401k') {
     fundAddRow.classList.add('hidden');
     accentureNameRow.classList.remove('hidden');
+    accentureNote.classList.remove('hidden');
+    customInstructions.classList.add('hidden');
     buildAccentureFundRows();
   } else {
     fundAddRow.classList.remove('hidden');
     accentureNameRow.classList.add('hidden');
+    accentureNote.classList.add('hidden');
+    customInstructions.classList.remove('hidden');
     renderFundsTable();
   }
 
@@ -90,15 +106,12 @@ portfolioTypeSelect.addEventListener('change', function () {
 
   const email = getEmail();
   if (email) lookupPortfolios(email);
-  else {
-    document.getElementById('savedPortfoliosWrap').classList.add('hidden');
-    document.getElementById('saveWrap').classList.remove('hidden');
-  }
+  else document.getElementById('savedPortfoliosWrap').classList.add('hidden');
 });
 
 // -- Accenture 401K fund rows ---------------------------------------------
 function buildAccentureFundRows() {
-  const tbody = document.getElementById('fundsBody');
+  const tbody      = document.getElementById('fundsBody');
   const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? '# shares' : '%';
 
   tbody.innerHTML = ACCENTURE_FUNDS.map(fund => `
@@ -132,12 +145,13 @@ function syncAccentureToFunds() {
     if (val > 0) funds.push({ ticker: input.dataset.ticker, type: 'mutual', alloc: val });
   });
   if (allocMode === 'pct') updateAllocSummary();
+  else document.getElementById('analyzeBtn').disabled = funds.length === 0;
 }
 
 // -- Fund table (custom) --------------------------------------------------
 function renderFundsTable() {
   document.getElementById('saveBtn').disabled = true;
-  const tbody = document.getElementById('fundsBody');
+  const tbody      = document.getElementById('fundsBody');
   const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? 'shares' : '%';
 
   if (funds.length === 0) {
@@ -252,15 +266,11 @@ async function runAnalysis() {
   const stockMap = {};
   totalPortfolioValue = 0;
 
-  // -- Step 1: resolve alloc values to dollar amounts if needed -----------
   let resolvedFunds = [...funds];
 
   if (allocMode === 'dollar') {
-    // For ETFs/mutual funds in dollar mode, dollar value is the alloc directly
-    // For stocks in dollar mode, dollar value is the alloc directly
     totalPortfolioValue = resolvedFunds.reduce((s, f) => s + f.alloc, 0);
   } else if (allocMode === 'shares') {
-    // Need to fetch prices for all entries to get dollar values
     setLoading(true, 'Fetching live prices...');
     for (const f of resolvedFunds) {
       try {
@@ -274,7 +284,6 @@ async function runAnalysis() {
     totalPortfolioValue = resolvedFunds.reduce((s, f) => s + (f.dollarValue || 0), 0);
   }
 
-  // -- Step 2: compute pct weights ----------------------------------------
   if (allocMode !== 'pct') {
     resolvedFunds = resolvedFunds.map(f => {
       const dollarVal = allocMode === 'dollar' ? f.alloc : (f.dollarValue || 0);
@@ -284,10 +293,8 @@ async function runAnalysis() {
     resolvedFunds = resolvedFunds.map(f => ({ ...f, pctWeight: f.alloc }));
   }
 
-  // -- Step 3: fetch holdings for ETFs/mutual funds -----------------------
   for (const fund of resolvedFunds) {
     if (fund.type === 'stock') {
-      // Direct stock — add straight to stockMap
       const sym = fund.ticker.toUpperCase();
       if (!stockMap[sym]) stockMap[sym] = { asset: sym, name: sym, portfolioPct: 0, portfolioDollar: 0, funds: [] };
       stockMap[sym].portfolioPct    += fund.pctWeight;
@@ -315,10 +322,10 @@ async function runAnalysis() {
       }
 
       for (const h of holdings) {
-        const sym  = (h.asset || '').toUpperCase();
-        const name = h.name || '';
-        const contribution    = (parseFloat(h.weightPercentage) || 0) / 100 * fund.pctWeight;
-        const dollarContrib   = allocMode !== 'pct'
+        const sym          = (h.asset || '').toUpperCase();
+        const name         = h.name || '';
+        const contribution = (parseFloat(h.weightPercentage) || 0) / 100 * fund.pctWeight;
+        const dollarContrib = allocMode !== 'pct'
           ? (parseFloat(h.weightPercentage) || 0) / 100 * (allocMode === 'dollar' ? fund.alloc : (fund.dollarValue || 0))
           : 0;
 
@@ -344,17 +351,12 @@ async function runAnalysis() {
 function renderResults(errors = []) {
   document.getElementById('resultsSection').classList.remove('hidden');
   document.getElementById('holdingsCount').textContent = aggregated.length;
-
-  // Show/hide dollar column
-  const dollarHeader = document.getElementById('dollarColHeader');
-  dollarHeader.classList.toggle('hidden', allocMode === 'pct');
-
+  document.getElementById('dollarColHeader').classList.toggle('hidden', allocMode === 'pct');
   renderDataSources();
 
   if (aggregated.length === 0) {
     document.getElementById('resultsBody').innerHTML =
-      '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1.5rem">' +
-      'No holdings data found.</td></tr>';
+      '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1.5rem">No holdings data found.</td></tr>';
     if (errors.length) showErrors(errors);
     return;
   }
@@ -414,7 +416,7 @@ function renderResultsTable() {
     const dollarStr = allocMode !== 'pct'
       ? '$' + r.portfolioDollar.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : '';
-    const tags = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
+    const tags      = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
     const dollarCell = allocMode !== 'pct' ? `<td>${dollarStr}</td>` : '';
 
     return `<tr>
@@ -454,30 +456,59 @@ document.getElementById('top20Only').addEventListener('change', renderResultsTab
 // -- Export CSV -----------------------------------------------------------
 document.getElementById('exportBtn').addEventListener('click', () => {
   if (!aggregated.length) return;
+  downloadCsv();
+});
+
+function buildCsv() {
   const rows    = [...aggregated].sort((a, b) => b.portfolioPct - a.portfolioPct);
   const headers = allocMode !== 'pct'
     ? ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Dollar Value', 'Held In']
     : ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Held In'];
 
-  const csv = [
+  return [
     headers.join(','),
     ...rows.map((r, i) => {
-      const base = [
-        i + 1, r.asset,
-        `"${r.name.replace(/"/g, '""')}"`,
-        r.portfolioPct.toFixed(4),
-      ];
+      const base = [i + 1, r.asset, `"${r.name.replace(/"/g, '""')}"`, r.portfolioPct.toFixed(4)];
       if (allocMode !== 'pct') base.push(r.portfolioDollar.toFixed(2));
       base.push([...new Set(r.funds)].join(' | '));
       return base.join(',');
     })
   ].join('\n');
+}
 
+function downloadCsv() {
+  const csv  = buildCsv();
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = 'portfolio_holdings.csv'; a.click();
   URL.revokeObjectURL(url);
+}
+
+// -- Send Results Email ---------------------------------------------------
+document.getElementById('emailBtn').addEventListener('click', async () => {
+  const email = getEmail();
+  const name  = document.getElementById('portfolioName').value.trim();
+
+  if (!email) { showToast('Enter your email address first.'); return; }
+  if (!name)  { showToast('Please save and name your portfolio before sending.'); return; }
+  if (!aggregated.length) { showToast('Run an analysis first.'); return; }
+
+  const csv = buildCsv();
+
+  try {
+    showToast('Sending email...');
+    const res = await fetch(`${serverBase()}/email-results`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ email, portfolioName: name, csv })
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast('Email failed: ' + (data.error || 'Unknown error')); return; }
+    showToast(`Results sent to ${email}!`);
+  } catch (e) {
+    showToast('Could not send email — please try again.');
+  }
 });
 
 // -- Helpers --------------------------------------------------------------
@@ -584,6 +615,7 @@ async function loadPortfolio(name) {
 
     document.getElementById('resultsSection').classList.add('hidden');
     document.getElementById('portfolioName').value = name;
+    currentPortfolioName = name;
     showToast(`Loaded "${name}" — review allocations then click Analyze.`);
   } catch {
     showToast('Could not load portfolio.');
@@ -619,6 +651,7 @@ document.getElementById('saveBtn').addEventListener('click', async () => {
       body:    JSON.stringify({ email, name, funds, portfolioType: currentPortfolioType, allocMode })
     });
     if (!res.ok) { showToast('Save failed.'); return; }
+    currentPortfolioName = name;
     showToast(`Saved "${name}" successfully.`);
     lookupPortfolios(email);
   } catch {

@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kurt Shoe Investment Analysis</title>
   <link rel="stylesheet" href="css/style.css">
+  <style>
+    .tooltip-wrap { position: relative; display: inline-block; margin-left: 6px; }
+    .tooltip-icon { display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; border-radius: 50%; background: #888; color: #fff;
+      font-size: 11px; font-weight: bold; cursor: pointer; user-select: none; }
+    .tooltip-box { display: none; position: absolute; left: 22px; top: -4px; z-index: 100;
+      background: #333; color: #fff; font-size: 12px; line-height: 1.5;
+      padding: 8px 12px; border-radius: 6px; width: 260px; pointer-events: none; }
+    .tooltip-wrap:hover .tooltip-box,
+    .tooltip-wrap.active .tooltip-box { display: block; }
+    .field-label { display: flex; align-items: center; font-weight: 500; margin-bottom: 4px; }
+    .section-note { font-size: 0.85rem; color: #888; margin: 0.4rem 0 0.8rem; font-style: italic; }
+    .portfolio-name-section { margin-bottom: 1rem; }
+  </style>
 </head>
 <body>
   <header>
@@ -28,12 +42,27 @@
       <h2>My Portfolios</h2>
       <div class="portfolio-mgmt">
 
+        <!-- Email -->
+        <div class="field-label">
+          Email Address
+          <span class="tooltip-wrap">
+            <span class="tooltip-icon">?</span>
+            <span class="tooltip-box">Enter your email address to save and retrieve portfolios. After running an analysis, you can send yourself a CSV of the results — the email will be sent to this address.</span>
+          </span>
+        </div>
         <div class="portfolio-email-row">
           <input type="email" id="userEmail" placeholder="your@email.com" autocomplete="email">
         </div>
 
+        <!-- Portfolio Type -->
+        <div class="field-label" style="margin-top:1rem">
+          Portfolio Type
+          <span class="tooltip-wrap">
+            <span class="tooltip-icon">?</span>
+            <span class="tooltip-box">Choose "Custom Portfolio" to build your own mix of ETFs, mutual funds, and individual stocks. Choose "Accenture 401K" to analyze your Accenture retirement account allocations.</span>
+          </span>
+        </div>
         <div class="portfolio-type-row">
-          <label for="portfolioType">Portfolio type:</label>
           <select id="portfolioType">
             <option value="" disabled selected>Select a portfolio type...</option>
             <option value="custom">Custom Portfolio</option>
@@ -41,20 +70,16 @@
           </select>
         </div>
 
+        <!-- Blank state -->
         <div id="blankState" class="blank-state">
           <p>Select a portfolio type above to get started.</p>
         </div>
 
+        <!-- Shown after type selected -->
         <div id="portfolioContent" class="hidden">
           <div id="savedPortfoliosWrap" class="hidden">
             <div class="saved-header">Saved portfolios:</div>
             <div id="savedList" class="saved-list"></div>
-          </div>
-          <div id="saveWrap">
-            <div class="save-row">
-              <input type="text" id="portfolioName" placeholder="Portfolio name (e.g. Retirement)">
-              <button id="saveBtn" disabled title="Run an analysis first">Save Portfolio</button>
-            </div>
           </div>
         </div>
 
@@ -65,15 +90,50 @@
     <section id="fundAllocSection" class="card hidden">
       <h2>Fund Allocations</h2>
 
-      <!-- Global allocation mode selector -->
+      <!-- Portfolio name (moved here) -->
+      <div class="portfolio-name-section">
+        <div class="field-label">
+          Portfolio Name
+          <span class="tooltip-wrap">
+            <span class="tooltip-icon">?</span>
+            <span class="tooltip-box">Give your portfolio a name before saving. Saving stores your fund allocations so you can reload and edit them later. After running an analysis, you can also email yourself a CSV of the results — the portfolio name will appear in the email subject line.</span>
+          </span>
+        </div>
+        <div class="save-row">
+          <input type="text" id="portfolioName" placeholder="e.g. Retirement Portfolio">
+          <button id="saveBtn" disabled title="Run an analysis first">Save Portfolio</button>
+        </div>
+      </div>
+
+      <!-- Accenture note -->
+      <div id="accentureNote" class="section-note hidden">
+        The funds below are the Vanguard funds in the Accenture 401K plan that publicly disclose their holdings. All other Accenture 401K funds do not publish their holdings — only their general investment philosophy.
+      </div>
+
+      <!-- Allocation mode -->
+      <div class="field-label">
+        Allocation Input Type
+        <span class="tooltip-wrap">
+          <span class="tooltip-icon">?</span>
+          <span class="tooltip-box">Choose how you want to enter your allocations:<br><br>
+            <strong>%</strong> — Enter the percentage of your portfolio in each fund. All entries must add up to 100%.<br><br>
+            <strong>$ Dollar Amount</strong> — Enter the dollar value you hold in each fund. Live prices are used to calculate weights for individual stocks.<br><br>
+            <strong>Shares</strong> — Enter the number of shares you hold. Live prices are fetched to calculate your portfolio weights.
+          </span>
+        </span>
+      </div>
       <div class="alloc-mode-row">
-        <label for="allocMode">Allocation input type:</label>
         <select id="allocMode">
           <option value="pct">Percentage (%)</option>
           <option value="dollar">Dollar Amount ($)</option>
           <option value="shares">Number of Shares</option>
         </select>
         <span id="allocModeHint" class="alloc-mode-hint"></span>
+      </div>
+
+      <!-- Custom portfolio instructions -->
+      <div id="customInstructions" class="section-note hidden">
+        Add funds one at a time using the row below. Select the fund type (ETF, Mutual Fund, or Stock), enter the ticker symbol, and enter your allocation. If using %, all entries must total 100% before you can analyze.
       </div>
 
       <div id="accentureNameRow" class="accenture-name-row hidden">
@@ -132,8 +192,15 @@
     <section id="resultsSection" class="card hidden">
       <div class="results-header">
         <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via stockanalysis.com</span></h2>
-        <div>
+        <div style="display:flex;gap:8px;align-items:center">
           <button id="exportBtn">Download CSV</button>
+          <button id="emailBtn" class="secondary">
+            Send Results Email
+            <span class="tooltip-wrap" style="margin-left:4px">
+              <span class="tooltip-icon" style="background:#666">?</span>
+              <span class="tooltip-box" style="left:auto;right:0">Sends a CSV of these results to your email address. Your portfolio must be saved and named first.</span>
+            </span>
+          </button>
         </div>
       </div>
 
