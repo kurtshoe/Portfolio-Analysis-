@@ -1,3 +1,4 @@
+// server.js
 /**
  * Local proxy server for Portfolio Allocation Analyzer.
  * Primary source: stockanalysis.com (25 holdings via Next.js page scrape)
@@ -5,11 +6,12 @@
  * Requires Node.js 18+. Run with: node server.js
  */
 
-const http  = require('http');
-const https = require('https');
-const fs    = require('fs');
-const path  = require('path');
-const PORT  = process.env.PORT || 3001;
+const http       = require('http');
+const https      = require('https');
+const fs         = require('fs');
+const path       = require('path');
+const nodemailer = require('nodemailer');
+const PORT       = process.env.PORT || 3001;
 console.log('PORT env var:', process.env.PORT);
 console.log('Listening on port:', PORT);
 
