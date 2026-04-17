@@ -47,7 +47,7 @@
           Email Address
           <span class="tooltip-wrap">
             <span class="tooltip-icon">?</span>
-            <span class="tooltip-box">Enter your email address to save and retrieve portfolios. After running an analysis, you can send yourself a CSV of the results — the email will be sent to this address.</span>
+            <span class="tooltip-box">Enter your email address to save and retrieve portfolios across sessions.</span>
           </span>
         </div>
         <div class="portfolio-email-row">
@@ -96,7 +96,7 @@
           Portfolio Name
           <span class="tooltip-wrap">
             <span class="tooltip-icon">?</span>
-            <span class="tooltip-box">Give your portfolio a name before saving. Saving stores your fund allocations so you can reload and edit them later. After running an analysis, you can also email yourself a CSV of the results — the portfolio name will appear in the email subject line.</span>
+            <span class="tooltip-box">Give your portfolio a name before saving. Saving stores your fund allocations so you can reload and edit them in future sessions.</span>
           </span>
         </div>
         <div class="save-row">
@@ -134,11 +134,6 @@
       <!-- Custom portfolio instructions -->
       <div id="customInstructions" class="section-note hidden">
         Add funds one at a time using the row below. Select the fund type (ETF, Mutual Fund, or Stock), enter the ticker symbol, and enter your allocation. If using %, all entries must total 100% before you can analyze.
-      </div>
-
-      <div id="accentureNameRow" class="accenture-name-row hidden">
-        <label for="accenturePortfolioName">Portfolio name:</label>
-        <input type="text" id="accenturePortfolioName" placeholder="e.g. My Accenture 401K">
       </div>
 
       <table id="fundsTable">
@@ -194,13 +189,6 @@
         <h2>Underlying Holdings (<span id="holdingsCount">0</span> stocks) <span class="hint">— top ~25 holdings per fund via stockanalysis.com</span></h2>
         <div style="display:flex;gap:8px;align-items:center">
           <button id="exportBtn">Download CSV</button>
-          <button id="emailBtn" class="secondary">
-            Send Results Email
-            <span class="tooltip-wrap" style="margin-left:4px">
-              <span class="tooltip-icon" style="background:#666">?</span>
-              <span class="tooltip-box" style="left:auto;right:0">Sends a CSV of these results to your email address. Your portfolio must be saved and named first.</span>
-            </span>
-          </button>
         </div>
       </div>
 

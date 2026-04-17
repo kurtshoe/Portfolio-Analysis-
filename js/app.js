@@ -69,7 +69,6 @@ const portfolioContent    = document.getElementById('portfolioContent');
 const blankState          = document.getElementById('blankState');
 const fundAllocSection    = document.getElementById('fundAllocSection');
 const fundAddRow          = document.getElementById('fundAddRow');
-const accentureNameRow    = document.getElementById('accentureNameRow');
 
 portfolioTypeSelect.addEventListener('change', function () {
   currentPortfolioType = this.value;
@@ -82,7 +81,6 @@ portfolioTypeSelect.addEventListener('change', function () {
   currentPortfolioName = '';
   document.getElementById('resultsSection').classList.add('hidden');
   document.getElementById('portfolioName').value = '';
-  document.getElementById('accenturePortfolioName').value = '';
   document.getElementById('saveBtn').disabled = true;
 
   const accentureNote      = document.getElementById('accentureNote');
@@ -93,8 +91,7 @@ portfolioTypeSelect.addEventListener('change', function () {
     accentureNameRow.classList.remove('hidden');
     accentureNote.classList.remove('hidden');
     customInstructions.classList.add('hidden');
-    buildAccentureFundRows();
-  } else {
+    buildAccentureFundRows();  } else {
     fundAddRow.classList.remove('hidden');
     accentureNameRow.classList.add('hidden');
     accentureNote.classList.add('hidden');
@@ -546,7 +543,13 @@ function formatDate(iso) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// -- Portfolio save / load ------------------------------------------------
+function updateEmailBtn() {
+  const name  = document.getElementById('portfolioName').value.trim();
+  const email = getEmail();
+  document.getElementById('emailBtn').disabled = !(name && email && aggregated.length > 0);
+}
+
+
 document.getElementById('userEmail').addEventListener('blur', () => {
   const email = getEmail();
   if (email && currentPortfolioType) lookupPortfolios(email);
@@ -608,7 +611,6 @@ async function loadPortfolio(name) {
         if (input) input.value = f.alloc;
       });
       syncAccentureToFunds();
-      document.getElementById('accenturePortfolioName').value = name;
     } else {
       renderFundsTable();
     }
