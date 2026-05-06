@@ -1,5 +1,5 @@
 // js/api.js
-const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
+const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-lcw7.onrender.com';
 
 function serverBase() {
   if (window.location.port === '3001') return '';

@@ -1,4 +1,3 @@
-// server.js
 /**
  * Local proxy server for Portfolio Allocation Analyzer.
  * Primary source: stockanalysis.com (25 holdings via Next.js page scrape)
@@ -10,9 +9,7 @@ const http  = require('http');
 const https = require('https');
 const fs    = require('fs');
 const path  = require('path');
-const PORT  = process.env.PORT || 3001;
-console.log('PORT env var:', process.env.PORT);
-console.log('Listening on port:', PORT);
+const PORT  = 3001;
 
 const STATIC_DIR = __dirname;
 const MIME = {
@@ -25,6 +22,7 @@ const MIME = {
 
 function serveStatic(req, res) {
   let filePath = path.join(STATIC_DIR, req.url === '/' ? 'index.html' : req.url);
+  // Prevent path traversal outside project dir
   if (!filePath.startsWith(STATIC_DIR)) { res.writeHead(403); res.end(); return; }
   const ext = path.extname(filePath);
   fs.readFile(filePath, (err, data) => {
@@ -34,79 +32,16 @@ function serveStatic(req, res) {
   });
 }
 
-// ── Portfolio storage ─────────────────────────────────────────────────────────
-const MONGODB_URI      = process.env.MONGODB_URI;
-const PORTFOLIOS_FILE  = path.join(__dirname, 'portfolios.json');
-let   dbCollection     = null;
+// ── Portfolio storage (flat JSON file) ────────────────────────────────────────
+const PORTFOLIOS_FILE = path.join(__dirname, 'portfolios.json');
 
-async function initDb() {
-  if (!MONGODB_URI) { console.log('  Storage: local file (portfolios.json)'); return; }
-  const { MongoClient } = require('mongodb');
-  const client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  dbCollection = client.db('portfolio_app').collection('portfolios');
-  console.log('  Storage: MongoDB Atlas');
-}
-
-// ── File-based helpers ────────────────────────────────────────────────────────
 function loadStore() {
   try { return JSON.parse(fs.readFileSync(PORTFOLIOS_FILE, 'utf8')); }
   catch { return {}; }
 }
+
 function saveStore(store) {
   fs.writeFileSync(PORTFOLIOS_FILE, JSON.stringify(store, null, 2));
-}
-
-// ── Unified portfolio CRUD ────────────────────────────────────────────────────
-async function dbList(email, portfolioType) {
-  if (dbCollection) {
-    const doc = await dbCollection.findOne({ email });
-    const portfolios = doc?.portfolios || {};
-    return Object.entries(portfolios)
-      .filter(([, p]) => !portfolioType || (p.portfolioType || 'custom') === portfolioType)
-      .map(([name, p]) => ({ name, savedAt: p.savedAt, fundCount: p.funds.length }))
-      .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-  }
-  const store      = loadStore();
-  const portfolios = store[email] || {};
-  return Object.entries(portfolios)
-    .filter(([, p]) => !portfolioType || (p.portfolioType || 'custom') === portfolioType)
-    .map(([name, p]) => ({ name, savedAt: p.savedAt, fundCount: p.funds.length }))
-    .sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-}
-
-async function dbLoad(email, name) {
-  if (dbCollection) {
-    const doc = await dbCollection.findOne({ email });
-    return doc?.portfolios?.[name] || null;
-  }
-  const store = loadStore();
-  return store[email]?.[name] || null;
-}
-
-async function dbSave(email, name, funds, portfolioType) {
-  const savedAt = new Date().toISOString();
-  if (dbCollection) {
-    await dbCollection.updateOne(
-      { email },
-      { $set: { [`portfolios.${name}`]: { funds, savedAt, portfolioType: portfolioType || 'custom' } } },
-      { upsert: true }
-    );
-    return;
-  }
-  const store = loadStore();
-  if (!store[email]) store[email] = {};
-  store[email][name] = { funds, savedAt, portfolioType: portfolioType || 'custom' };
-  saveStore(store);
-}
-
-async function dbDelete(email, name) {
-  if (dbCollection) {
-    await dbCollection.updateOne({ email }, { $unset: { [`portfolios.${name}`]: '' } });
-    return;
-  }
-  const store = loadStore();
-  if (store[email]?.[name]) { delete store[email][name]; saveStore(store); }
 }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -115,11 +50,10 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 function fetchUrl(url, options = {}) {
   return new Promise((resolve, reject) => {
     const parsed  = new URL(url);
-    const body    = options.body || null;
     const reqOpts = {
       hostname:      parsed.hostname,
       path:          parsed.pathname + parsed.search,
-      method:        options.method || 'GET',
+      method:        'GET',
       headers:       options.headers || {},
       maxHeaderSize: 65536
     };
@@ -133,14 +67,13 @@ function fetchUrl(url, options = {}) {
       }));
     });
     req.on('error', reject);
-    if (body) req.write(body);
     req.end();
   });
 }
 
 // ── Method 1: stockanalysis.com page scrape (25 holdings) ────────────────────
 async function scrapeStockAnalysis(ticker, type) {
-  const segment = type === 'mutual' ? 'quote/mutf' : 'etf';
+  const segment = type === 'mutual' ? 'mutual-fund' : 'etf';
   const url = `https://stockanalysis.com/${segment}/${ticker.toLowerCase()}/holdings/`;
 
   const res = await fetchUrl(url, {
@@ -154,9 +87,12 @@ async function scrapeStockAnalysis(ticker, type) {
   console.log(`  stockanalysis.com response: ${res.status}, ${res.body.length} bytes`);
   if (res.status >= 400) throw new Error(`stockanalysis.com returned HTTP ${res.status}`);
 
+  // stockanalysis.com uses Next.js — data is in __NEXT_DATA__
+  // Data is embedded as an unquoted JS object: data:{holdings:[{no:1,n:"...",s:"$TICK",as:"7.48%",...}]}
   const holdingsStart = res.body.indexOf('data:{holdings:[');
   if (holdingsStart === -1) throw new Error('holdings array not found in stockanalysis.com page');
 
+  // Find the '[' and extract the full array by bracket counting
   const arrOpen = res.body.indexOf('[', holdingsStart);
   let depth = 0, i = arrOpen;
   for (; i < res.body.length; i++) {
@@ -165,6 +101,8 @@ async function scrapeStockAnalysis(ticker, type) {
     else if (ch === ']' || ch === '}') { depth--; if (depth === 0) { i++; break; } }
   }
   const rawArr = res.body.slice(arrOpen, i);
+
+  // Convert unquoted JS keys to quoted JSON keys, then parse
   const jsonArr = rawArr.replace(/([{,])(\w+):/g, '$1"$2":');
   const arr = JSON.parse(jsonArr);
   if (!arr.length) throw new Error('Parsed holdings array is empty');
@@ -172,6 +110,10 @@ async function scrapeStockAnalysis(ticker, type) {
   return arr;
 }
 
+/**
+ * Recursively search an object tree for an array that looks like fund holdings.
+ * Handles both Yahoo Finance shape (holdingPercent) and stockanalysis.com shape (weight).
+ */
 function findHoldingsArray(node, depth = 0) {
   if (depth > 20 || node === null || node === undefined) return null;
 
@@ -206,19 +148,22 @@ function findHoldingsArray(node, depth = 0) {
   return null;
 }
 
+/** Normalise a scraped holding (Yahoo or stockanalysis.com) to { asset, name, weightPercentage } */
 function normaliseHolding(h) {
+  // stockanalysis.com uses compact keys: s="$NVDA", n="Nvidia Corp", as="7.48%"
   const rawSymbol = h.s || h.symbol || h.ticker || '';
   const symbol    = rawSymbol.replace(/^\$/, '').toUpperCase();
   const name      = h.n || h.holdingName || h.name || h.companyName || '';
 
+  // as="7.48%" (string) or numeric weight/holdingPercent
   let pct;
   if (h.as && typeof h.as === 'string') {
-    pct = parseFloat(h.as.replace('%', '')) || 0;
+    pct = parseFloat(h.as.replace('%', '')) || 0;  // already 0–100
   } else {
     pct = h.holdingPercent ?? h.weight ?? h.weightPercentage ?? h.pct ?? 0;
     if (pct && typeof pct === 'object') pct = pct.raw ?? 0;
     pct = parseFloat(pct) || 0;
-    if (pct <= 1.5) pct *= 100;
+    if (pct <= 1.5) pct *= 100;  // convert 0–1 fraction to 0–100
   }
 
   return { asset: symbol, name, weightPercentage: pct };
@@ -293,6 +238,7 @@ async function getHoldings(ticker, type) {
     console.warn(`  Scrape failed: ${scrapeWarning}`);
   }
 
+  // Fallback: Yahoo Finance API (10 holdings)
   const holdings = await fetchViaApi(ticker);
   return {
     holdings,
@@ -314,14 +260,17 @@ const server = http.createServer(async (req, res) => {
 
   // ── Portfolio list ──────────────────────────────────────────────────────────
   if (url.pathname === '/portfolio/list') {
-    const email         = (url.searchParams.get('email')         || '').trim().toLowerCase();
-    const portfolioType = (url.searchParams.get('portfolioType') || '').trim();
+    const email = (url.searchParams.get('email') || '').trim().toLowerCase();
     if (!email) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email' })); return; }
-    try {
-      const list = await dbList(email, portfolioType);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(list));
-    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    const store      = loadStore();
+    const portfolios = store[email] || {};
+    const list = Object.entries(portfolios).map(([name, p]) => ({
+      name,
+      savedAt:   p.savedAt,
+      fundCount: p.funds.length
+    })).sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(list));
     return;
   }
 
@@ -330,12 +279,11 @@ const server = http.createServer(async (req, res) => {
     const email = (url.searchParams.get('email') || '').trim().toLowerCase();
     const name  = (url.searchParams.get('name')  || '').trim();
     if (!email || !name) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email or name' })); return; }
-    try {
-      const p = await dbLoad(email, name);
-      if (!p) { res.writeHead(404); res.end(JSON.stringify({ error: 'Portfolio not found' })); return; }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(p));
-    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+    const store = loadStore();
+    const p     = store[email]?.[name];
+    if (!p) { res.writeHead(404); res.end(JSON.stringify({ error: 'Portfolio not found' })); return; }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(p));
     return;
   }
 
@@ -343,15 +291,20 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/portfolio/save' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => body += chunk);
-    req.on('end', async () => {
+    req.on('end', () => {
       try {
-        const { email, name, funds, portfolioType } = JSON.parse(body);
+        const { email, name, funds } = JSON.parse(body);
         if (!email || !name || !funds) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing fields' })); return; }
-        await dbSave(email.toLowerCase(), name, funds, portfolioType);
+        const store = loadStore();
+        if (!store[email.toLowerCase()]) store[email.toLowerCase()] = {};
+        store[email.toLowerCase()][name] = { funds, savedAt: new Date().toISOString() };
+        saveStore(store);
         console.log(`  Saved portfolio "${name}" for ${email}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
-      } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
+      } catch (e) {
+        res.writeHead(400); res.end(JSON.stringify({ error: e.message }));
+      }
     });
     return;
   }
@@ -361,32 +314,10 @@ const server = http.createServer(async (req, res) => {
     const email = (url.searchParams.get('email') || '').trim().toLowerCase();
     const name  = (url.searchParams.get('name')  || '').trim();
     if (!email || !name) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing email or name' })); return; }
-    try {
-      await dbDelete(email, name);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true }));
-    } catch (e) { res.writeHead(500); res.end(JSON.stringify({ error: e.message })); }
-    return;
-  }
-
-  // ── Price lookup ───────────────────────────────────────────────────────────
-  if (url.pathname === '/price') {
-    const ticker = (url.searchParams.get('ticker') || '').trim().toUpperCase();
-    if (!ticker) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing ticker' })); return; }
-    try {
-      if (!yfCrumb) await refreshCrumb();
-      const priceUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d&crumb=${encodeURIComponent(yfCrumb)}`;
-      const r = await fetchUrl(priceUrl, {
-        headers: { 'User-Agent': UA, 'Cookie': yfCookie, 'Accept': 'application/json' }
-      });
-      const json  = JSON.parse(r.body);
-      const price = json?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      if (!price) throw new Error('Price not found');
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ticker, price }));
-    } catch (e) {
-      res.writeHead(502); res.end(JSON.stringify({ error: e.message }));
-    }
+    const store = loadStore();
+    if (store[email]?.[name]) { delete store[email][name]; saveStore(store); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
 
@@ -417,7 +348,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-initDb().then(() => server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
+  // Show all usable network addresses
   const { networkInterfaces } = require('os');
   const nets = networkInterfaces();
   const ips  = ['localhost'];
@@ -435,4 +367,4 @@ initDb().then(() => server.listen(PORT, '0.0.0.0', () => {
   console.log('  Share any of the network addresses above with other users on the same network.');
   console.log('  Press Ctrl+C to stop.');
   console.log('');
-})).catch(err => { console.error('Failed to start:', err.message); process.exit(1); });
+});
