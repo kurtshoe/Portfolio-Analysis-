@@ -1,25 +1,166 @@
-// ── State ────────────────────────────────────────────────────────────────────
-let funds = [];           // { ticker, type, alloc }
-let aggregated = [];      // final result rows
-let fetchMeta  = [];      // { ticker, source, count, warning } per fund
+// js/app.js
+// -- State ----------------------------------------------------------------
+let funds = [];
+let aggregated = [];
+let fetchMeta  = [];
 let sortCol = 'portfolioPct';
-let sortDir = -1;         // -1 = desc
+let sortDir = -1;
+let currentPortfolioType = '';
+let allocMode = 'pct';
+let totalPortfolioValue = 0;
+let currentPortfolioName = '';
 
-// ── Fund table ───────────────────────────────────────────────────────────────
+const ACCENTURE_FUNDS = [
+  { ticker: 'VEMRX', name: 'Vanguard Emerging Markets Stock Index Fund Admiral Shares' },
+  { ticker: 'VIGIX', name: 'Vanguard Growth Index Fund Institutional Shares' },
+  { ticker: 'VMCPX', name: 'Vanguard Mid-Cap Index Fund Institutional Plus Shares' },
+  { ticker: 'VGSNX', name: 'Vanguard Real Estate Index Fund Admiral Shares' },
+  { ticker: 'VSCPX', name: 'Vanguard Small-Cap Index Fund Institutional Plus Shares' },
+  { ticker: 'VIVIX', name: 'Vanguard Value Index Fund Institutional Shares' },
+];
+
+// -- Tooltip tap support (mobile) -----------------------------------------
+document.addEventListener('click', e => {
+  const wrap = e.target.closest('.tooltip-wrap');
+  document.querySelectorAll('.tooltip-wrap.active').forEach(el => {
+    if (el !== wrap) el.classList.remove('active');
+  });
+  if (wrap) wrap.classList.toggle('active');
+});
+
+// -- Alloc mode selector --------------------------------------------------
+const allocModeSelect = document.getElementById('allocMode');
+
+allocModeSelect.addEventListener('change', function () {
+  allocMode = this.value;
+  updateAllocModeUI();
+  if (currentPortfolioType === 'accenture401k') buildAccentureFundRows();
+  else renderFundsTable();
+});
+
+function updateAllocModeUI() {
+  const header        = document.getElementById('allocColHeader');
+  const hint          = document.getElementById('allocModeHint');
+  const newAllocInput = document.getElementById('newAlloc');
+  const summaryRow    = document.querySelector('.alloc-progress-row');
+
+  if (allocMode === 'pct') {
+    header.textContent          = 'Allocation %';
+    newAllocInput.placeholder   = '%';
+    hint.textContent            = '';
+    summaryRow.style.display    = '';
+  } else if (allocMode === 'dollar') {
+    header.textContent          = 'Dollar Amount ($)';
+    newAllocInput.placeholder   = '$';
+    hint.textContent            = 'Enter dollar value — live prices used for stocks';
+    summaryRow.style.display    = 'none';
+  } else {
+    header.textContent          = 'Shares';
+    newAllocInput.placeholder   = '# shares';
+    hint.textContent            = 'Enter number of shares — live prices fetched to calculate weights';
+    summaryRow.style.display    = 'none';
+  }
+  document.getElementById('allocWarning').classList.add('hidden');
+}
+
+// -- Portfolio type selection ---------------------------------------------
+const portfolioTypeSelect = document.getElementById('portfolioType');
+const portfolioContent    = document.getElementById('portfolioContent');
+const blankState          = document.getElementById('blankState');
+const fundAllocSection    = document.getElementById('fundAllocSection');
+const fundAddRow          = document.getElementById('fundAddRow');
+
+portfolioTypeSelect.addEventListener('change', function () {
+  currentPortfolioType = this.value;
+  blankState.classList.add('hidden');
+  portfolioContent.classList.remove('hidden');
+  fundAllocSection.classList.remove('hidden');
+
+  funds = [];
+  aggregated = [];
+  currentPortfolioName = '';
+  document.getElementById('resultsSection').classList.add('hidden');
+  document.getElementById('portfolioName').value = '';
+  document.getElementById('saveBtn').disabled = true;
+
+  const accentureNote      = document.getElementById('accentureNote');
+  const customInstructions = document.getElementById('customInstructions');
+
+  if (currentPortfolioType === 'accenture401k') {
+    fundAddRow.classList.add('hidden');
+    accentureNote.classList.remove('hidden');
+    customInstructions.classList.add('hidden');
+    buildAccentureFundRows();
+  } else {
+    fundAddRow.classList.remove('hidden');
+    accentureNote.classList.add('hidden');
+    customInstructions.classList.remove('hidden');
+    renderFundsTable();
+  }
+
+  updateAllocModeUI();
+
+  const email = getEmail();
+  if (email) lookupPortfolios(email);
+  else document.getElementById('savedPortfoliosWrap').classList.add('hidden');
+});
+
+// -- Accenture 401K fund rows ---------------------------------------------
+function buildAccentureFundRows() {
+  const tbody      = document.getElementById('fundsBody');
+  const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? '# shares' : '%';
+
+  tbody.innerHTML = ACCENTURE_FUNDS.map(fund => `
+    <tr data-ticker="${fund.ticker}">
+      <td><strong>${fund.ticker}</strong></td>
+      <td>${fund.name}</td>
+      <td>
+        <input type="number" class="alloc-edit accenture-alloc" data-ticker="${fund.ticker}"
+          placeholder="${allocLabel}" min="0" step="0.01" style="width:90px">
+        <span class="alloc-pct-symbol">${allocLabel}</span>
+      </td>
+      <td><em style="color:#aaa;font-size:0.8rem">locked</em></td>
+    </tr>
+  `).join('');
+
+  const note = document.createElement('tr');
+  note.innerHTML = `<td colspan="4" style="font-style:italic;color:#aaa;font-size:0.85rem;padding:0.75rem 0.5rem">
+    Accenture funds not listed above do not publish their holdings publicly.
+  </td>`;
+  tbody.appendChild(note);
+
+  tbody.querySelectorAll('.accenture-alloc').forEach(input => {
+    input.addEventListener('input', syncAccentureToFunds);
+  });
+}
+
+function syncAccentureToFunds() {
+  funds = [];
+  document.querySelectorAll('.accenture-alloc').forEach(input => {
+    const val = parseFloat(input.value);
+    if (val > 0) funds.push({ ticker: input.dataset.ticker, type: 'mutual', alloc: val });
+  });
+  if (allocMode === 'pct') updateAllocSummary();
+  else document.getElementById('analyzeBtn').disabled = funds.length === 0;
+}
+
+// -- Fund table (custom) --------------------------------------------------
 function renderFundsTable() {
   document.getElementById('saveBtn').disabled = true;
-  const tbody = document.getElementById('fundsBody');
+  const tbody      = document.getElementById('fundsBody');
+  const allocLabel = allocMode === 'dollar' ? '$' : allocMode === 'shares' ? 'shares' : '%';
+
   if (funds.length === 0) {
     tbody.innerHTML = '<tr><td colspan="4" style="color:#aaa;font-style:italic;padding:0.75rem">No funds added yet.</td></tr>';
   } else {
     tbody.innerHTML = funds.map((f, i) => `
       <tr>
         <td class="ticker-cell">${escapeHtml(f.ticker)}</td>
-        <td>${f.type === 'mutual' ? 'Mutual Fund' : 'ETF / Index'}</td>
+        <td>${f.type === 'mutual' ? 'Mutual Fund' : f.type === 'stock' ? 'Stock' : 'ETF / Index'}</td>
         <td>
-          <input class="alloc-edit" type="number" value="${f.alloc}" min="0.01" max="100" step="0.01"
-            onchange="updateAlloc(${i}, this.value)" title="Edit allocation %">
-          <span class="alloc-pct-symbol">%</span>
+          <input class="alloc-edit" type="number" value="${f.alloc}" min="0.01" step="0.01"
+            onchange="updateAlloc(${i}, this.value)" title="Edit allocation">
+          <span class="alloc-pct-symbol">${allocLabel}</span>
         </td>
         <td><button class="del-btn" onclick="removeFund(${i})" title="Remove">&times;</button></td>
       </tr>
@@ -29,9 +170,14 @@ function renderFundsTable() {
 }
 
 function updateAllocSummary() {
-  const total   = funds.reduce((sum, f) => sum + parseFloat(f.alloc), 0);
-  const rounded = Math.round(total * 100) / 100;
-  const capped  = Math.min(rounded, 100);
+  if (allocMode !== 'pct') {
+    document.getElementById('analyzeBtn').disabled = funds.length === 0;
+    return;
+  }
+
+  const total     = funds.reduce((sum, f) => sum + parseFloat(f.alloc || 0), 0);
+  const rounded   = Math.round(total * 100) / 100;
+  const capped    = Math.min(rounded, 100);
   const remaining = Math.round((100 - rounded) * 100) / 100;
 
   document.getElementById('totalAlloc').textContent = rounded + '%';
@@ -43,14 +189,14 @@ function updateAllocSummary() {
 
   const remEl = document.getElementById('allocRemaining');
   if (rounded >= 99.99 && rounded <= 100.01) {
-    remEl.textContent  = 'Ready to analyze';
-    remEl.className    = 'alloc-remaining ready';
+    remEl.textContent = 'Ready to analyze';
+    remEl.className   = 'alloc-remaining ready';
   } else if (rounded > 100.01) {
-    remEl.textContent  = (rounded - 100).toFixed(2) + '% over';
-    remEl.className    = 'alloc-remaining over';
+    remEl.textContent = (rounded - 100).toFixed(2) + '% over';
+    remEl.className   = 'alloc-remaining over';
   } else {
-    remEl.textContent  = remaining + '% remaining';
-    remEl.className    = 'alloc-remaining';
+    remEl.textContent = remaining + '% remaining';
+    remEl.className   = 'alloc-remaining';
   }
 
   const warn = document.getElementById('allocWarning');
@@ -69,9 +215,11 @@ document.getElementById('addFundBtn').addEventListener('click', () => {
   const type   = document.getElementById('newType').value;
   const alloc  = parseFloat(document.getElementById('newAlloc').value);
 
-  if (!ticker)          { showToast('Enter a ticker symbol.'); return; }
-  if (isNaN(alloc) || alloc <= 0) { showToast('Enter a valid allocation %.'); return; }
-  if (funds.some(f => f.ticker === ticker)) { showToast(`${ticker} already added.`); return; }
+  if (!ticker)                    { showToast('Enter a ticker symbol.'); return; }
+  if (isNaN(alloc) || alloc <= 0) { showToast('Enter a valid allocation.'); return; }
+  if (type !== 'stock' && funds.some(f => f.ticker === ticker)) {
+    showToast(`${ticker} already added.`); return;
+  }
 
   funds.push({ ticker, type, alloc });
   document.getElementById('newTicker').value = '';
@@ -86,7 +234,7 @@ window.removeFund = function(i) {
 
 window.updateAlloc = function(i, val) {
   const parsed = parseFloat(val);
-  if (isNaN(parsed) || parsed <= 0) { showToast('Enter a valid allocation %.'); renderFundsTable(); return; }
+  if (isNaN(parsed) || parsed <= 0) { showToast('Enter a valid allocation.'); renderFundsTable(); return; }
   funds[i].alloc = parsed;
   updateAllocSummary();
 };
@@ -95,29 +243,66 @@ document.getElementById('clearFundsBtn').addEventListener('click', () => {
   if (funds.length === 0) return;
   if (confirm('Clear all funds?')) {
     funds = [];
-    renderFundsTable();
+    if (currentPortfolioType === 'accenture401k') buildAccentureFundRows();
+    else renderFundsTable();
     document.getElementById('resultsSection').classList.add('hidden');
   }
 });
 
-// ── Analysis ─────────────────────────────────────────────────────────────────
+// -- Analysis -------------------------------------------------------------
 document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
 
 async function runAnalysis() {
-
-  setLoading(true, `Fetching holdings for ${funds.length} fund(s)...`);
+  setLoading(true, 'Preparing analysis...');
   document.getElementById('resultsSection').classList.add('hidden');
   document.getElementById('fetchErrors').classList.add('hidden');
 
   const errors   = [];
   fetchMeta      = [];
-  const stockMap = {}; // ticker -> { name, portfolioPct, funds: [] }
-  const maxPct   = { val: 0 };
+  const stockMap = {};
+  totalPortfolioValue = 0;
 
-  for (const fund of funds) {
+  let resolvedFunds = [...funds];
+
+  if (allocMode === 'dollar') {
+    totalPortfolioValue = resolvedFunds.reduce((s, f) => s + f.alloc, 0);
+  } else if (allocMode === 'shares') {
+    setLoading(true, 'Fetching live prices...');
+    for (const f of resolvedFunds) {
+      try {
+        const price = await fetchPrice(f.ticker);
+        f.dollarValue = f.alloc * price;
+      } catch (e) {
+        errors.push(`${f.ticker}: Could not fetch price — ${e.message}`);
+        f.dollarValue = 0;
+      }
+    }
+    totalPortfolioValue = resolvedFunds.reduce((s, f) => s + (f.dollarValue || 0), 0);
+  }
+
+  if (allocMode !== 'pct') {
+    resolvedFunds = resolvedFunds.map(f => {
+      const dollarVal = allocMode === 'dollar' ? f.alloc : (f.dollarValue || 0);
+      return { ...f, pctWeight: totalPortfolioValue > 0 ? (dollarVal / totalPortfolioValue) * 100 : 0 };
+    });
+  } else {
+    resolvedFunds = resolvedFunds.map(f => ({ ...f, pctWeight: f.alloc }));
+  }
+
+  for (const fund of resolvedFunds) {
+    if (fund.type === 'stock') {
+      const sym = fund.ticker.toUpperCase();
+      if (!stockMap[sym]) stockMap[sym] = { asset: sym, name: sym, portfolioPct: 0, portfolioDollar: 0, funds: [] };
+      stockMap[sym].portfolioPct    += fund.pctWeight;
+      stockMap[sym].portfolioDollar += allocMode === 'dollar' ? fund.alloc : (fund.dollarValue || 0);
+      stockMap[sym].funds.push(fund.ticker + ' (direct)');
+      fetchMeta.push({ ticker: fund.ticker, source: 'direct holding', count: 1, warning: null });
+      continue;
+    }
+
     setLoading(true, `Fetching ${fund.ticker}...`);
     try {
-      const result = await fetchHoldings(fund.ticker, fund.type);
+      const result   = await fetchHoldings(fund.ticker, fund.type);
       const holdings = result.holdings;
 
       fetchMeta.push({
@@ -128,23 +313,23 @@ async function runAnalysis() {
       });
 
       if (!Array.isArray(holdings) || holdings.length === 0) {
-        errors.push(`${fund.ticker}: No holdings data returned. Check ticker or fund type.`);
+        errors.push(`${fund.ticker}: No holdings data returned.`);
         continue;
       }
 
       for (const h of holdings) {
-        const sym  = (h.asset || '').toUpperCase();
-        const name = h.name || '';
-        const contribution = (parseFloat(h.weightPercentage) || 0) / 100 * fund.alloc;
+        const sym          = (h.asset || '').toUpperCase();
+        const name         = h.name || '';
+        const contribution = (parseFloat(h.weightPercentage) || 0) / 100 * fund.pctWeight;
+        const dollarContrib = allocMode !== 'pct'
+          ? (parseFloat(h.weightPercentage) || 0) / 100 * (allocMode === 'dollar' ? fund.alloc : (fund.dollarValue || 0))
+          : 0;
 
         if (!sym || contribution <= 0) continue;
-
-        if (!stockMap[sym]) {
-          stockMap[sym] = { asset: sym, name, portfolioPct: 0, funds: [] };
-        }
-        stockMap[sym].portfolioPct += contribution;
+        if (!stockMap[sym]) stockMap[sym] = { asset: sym, name, portfolioPct: 0, portfolioDollar: 0, funds: [] };
+        stockMap[sym].portfolioPct    += contribution;
+        stockMap[sym].portfolioDollar += dollarContrib;
         stockMap[sym].funds.push(fund.ticker);
-        if (stockMap[sym].portfolioPct > maxPct.val) maxPct.val = stockMap[sym].portfolioPct;
       }
     } catch (err) {
       errors.push(`${fund.ticker}: ${err.message}`);
@@ -153,53 +338,44 @@ async function runAnalysis() {
   }
 
   aggregated = Object.values(stockMap);
-  aggregated.forEach(s => s._max = maxPct.val);
-
   setLoading(false);
   renderResults(errors);
   document.getElementById('saveBtn').disabled = aggregated.length === 0;
 }
 
-// ── Results ──────────────────────────────────────────────────────────────────
+// -- Results --------------------------------------------------------------
 function renderResults(errors = []) {
   document.getElementById('resultsSection').classList.remove('hidden');
   document.getElementById('holdingsCount').textContent = aggregated.length;
-
+  document.getElementById('dollarColHeader').classList.toggle('hidden', allocMode === 'pct');
   renderDataSources();
 
   if (aggregated.length === 0) {
     document.getElementById('resultsBody').innerHTML =
-      '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:1.5rem">' +
-      'No holdings data found. Check ticker symbols and fund types.' +
-      '</td></tr>';
+      '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1.5rem">No holdings data found.</td></tr>';
     if (errors.length) showErrors(errors);
     return;
   }
 
   applySort();
   renderResultsTable();
-
   if (errors.length > 0) showErrors(errors);
 }
 
 function renderDataSources() {
-  let el = document.getElementById('dataSourcesInfo');
+  const el = document.getElementById('dataSourcesInfo');
   if (!el) return;
-
   if (!fetchMeta.length) { el.classList.add('hidden'); return; }
 
   const rows = fetchMeta.map(m => {
-    const warnHtml = m.warning
-      ? `<div class="ds-warning">${escapeHtml(m.warning)}</div>`
-      : '';
+    const warnHtml   = m.warning ? `<div class="ds-warning">${escapeHtml(m.warning)}</div>` : '';
     const countClass = m.count >= 20 ? 'ds-count-good' : m.count > 0 ? 'ds-count-warn' : 'ds-count-err';
-    return `
-      <div class="ds-row">
-        <span class="ds-ticker">${escapeHtml(m.ticker)}</span>
-        <span class="ds-source">${escapeHtml(m.source)}</span>
-        <span class="${countClass}">${m.count} rows</span>
-        ${warnHtml}
-      </div>`;
+    return `<div class="ds-row">
+      <span class="ds-ticker">${escapeHtml(m.ticker)}</span>
+      <span class="ds-source">${escapeHtml(m.source)}</span>
+      <span class="${countClass}">${m.count} rows</span>
+      ${warnHtml}
+    </div>`;
   }).join('');
 
   el.innerHTML = '<strong>Data Sources</strong>' + rows;
@@ -207,55 +383,51 @@ function renderDataSources() {
 }
 
 function renderResultsTable() {
-  const search   = document.getElementById('searchBox').value.toLowerCase();
-  const top20    = document.getElementById('top20Only').checked;
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const top20  = document.getElementById('top20Only').checked;
 
   let rows = [...aggregated];
-
-  // Sort
   rows.sort((a, b) => {
-    const av = a[sortCol] || '';
-    const bv = b[sortCol] || '';
+    const av = a[sortCol] ?? 0, bv = b[sortCol] ?? 0;
     if (typeof av === 'number') return (av - bv) * sortDir;
     return String(av).localeCompare(String(bv)) * sortDir;
   });
 
-  // Filter
-  if (search) {
-    rows = rows.filter(r =>
-      r.asset.toLowerCase().includes(search) ||
-      r.name.toLowerCase().includes(search)
-    );
-  }
-
+  if (search) rows = rows.filter(r =>
+    r.asset.toLowerCase().includes(search) || r.name.toLowerCase().includes(search)
+  );
   if (top20) rows = rows.slice(0, 20);
 
   const maxPct = rows.length ? rows[0].portfolioPct : 1;
   const tbody  = document.getElementById('resultsBody');
 
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" style="color:#aaa;text-align:center;padding:1rem">No results.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="color:#aaa;text-align:center;padding:1rem">No results.</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map((r, i) => {
-    const barWidth = Math.max(2, Math.round((r.portfolioPct / maxPct) * 100));
-    const pctStr   = r.portfolioPct.toFixed(3) + '%';
-    const tags     = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
-    return `
-      <tr>
-        <td style="color:#aaa;font-size:0.8rem">${i + 1}</td>
-        <td style="font-family:monospace;font-weight:bold">${escapeHtml(r.asset)}</td>
-        <td>${escapeHtml(r.name)}</td>
-        <td class="pct-bar-cell">
-          <div class="pct-bar-wrap">
-            <div class="pct-bar" style="width:${barWidth}px"></div>
-            <span class="pct-label">${pctStr}</span>
-          </div>
-        </td>
-        <td><div class="fund-tags">${tags}</div></td>
-      </tr>
-    `;
+    const barWidth  = Math.max(2, Math.round((r.portfolioPct / maxPct) * 100));
+    const pctStr    = r.portfolioPct.toFixed(3) + '%';
+    const dollarStr = allocMode !== 'pct'
+      ? '$' + r.portfolioDollar.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '';
+    const tags      = [...new Set(r.funds)].map(f => `<span class="fund-tag">${escapeHtml(f)}</span>`).join('');
+    const dollarCell = allocMode !== 'pct' ? `<td>${dollarStr}</td>` : '';
+
+    return `<tr>
+      <td style="color:#aaa;font-size:0.8rem">${i + 1}</td>
+      <td style="font-family:monospace;font-weight:bold">${escapeHtml(r.asset)}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td class="pct-bar-cell">
+        <div class="pct-bar-wrap">
+          <div class="pct-bar" style="width:${barWidth}px"></div>
+          <span class="pct-label">${pctStr}</span>
+        </div>
+      </td>
+      ${dollarCell}
+      <td><div class="fund-tags">${tags}</div></td>
+    </tr>`;
   }).join('');
 }
 
@@ -267,12 +439,8 @@ function applySort() {
 
 document.querySelectorAll('#resultsTable th.sortable').forEach(th => {
   th.addEventListener('click', () => {
-    if (sortCol === th.dataset.col) {
-      sortDir *= -1;
-    } else {
-      sortCol = th.dataset.col;
-      sortDir = sortCol === 'portfolioPct' ? -1 : 1;
-    }
+    if (sortCol === th.dataset.col) { sortDir *= -1; }
+    else { sortCol = th.dataset.col; sortDir = sortCol === 'portfolioPct' ? -1 : 1; }
     applySort();
     renderResultsTable();
   });
@@ -281,32 +449,39 @@ document.querySelectorAll('#resultsTable th.sortable').forEach(th => {
 document.getElementById('searchBox').addEventListener('input', renderResultsTable);
 document.getElementById('top20Only').addEventListener('change', renderResultsTable);
 
-// ── Export CSV ───────────────────────────────────────────────────────────────
+// -- Export CSV -----------------------------------------------------------
 document.getElementById('exportBtn').addEventListener('click', () => {
   if (!aggregated.length) return;
-  const rows = [...aggregated].sort((a, b) => b.portfolioPct - a.portfolioPct);
-  const headers = ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Held In'];
-  const csv = [
-    headers.join(','),
-    ...rows.map((r, i) => [
-      i + 1,
-      r.asset,
-      `"${r.name.replace(/"/g, '""')}"`,
-      r.portfolioPct.toFixed(4),
-      [...new Set(r.funds)].join(' | ')
-    ].join(','))
-  ].join('\n');
+  downloadCsv();
+});
 
+function buildCsv() {
+  const rows    = [...aggregated].sort((a, b) => b.portfolioPct - a.portfolioPct);
+  const headers = allocMode !== 'pct'
+    ? ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Dollar Value', 'Held In']
+    : ['Rank', 'Ticker', 'Name', 'Portfolio %', 'Held In'];
+
+  return [
+    headers.join(','),
+    ...rows.map((r, i) => {
+      const base = [i + 1, r.asset, `"${r.name.replace(/"/g, '""')}"`, r.portfolioPct.toFixed(4)];
+      if (allocMode !== 'pct') base.push(r.portfolioDollar.toFixed(2));
+      base.push([...new Set(r.funds)].join(' | '));
+      return base.join(',');
+    })
+  ].join('\n');
+}
+
+function downloadCsv() {
+  const csv  = buildCsv();
   const blob = new Blob([csv], { type: 'text/csv' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url;
-  a.download = 'portfolio_holdings.csv';
-  a.click();
+  a.href = url; a.download = 'portfolio_holdings.csv'; a.click();
   URL.revokeObjectURL(url);
-});
+}
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// -- Helpers --------------------------------------------------------------
 function setLoading(on, msg = '') {
   document.getElementById('loadingMsg').classList.toggle('hidden', !on);
   document.getElementById('loadingText').textContent = msg;
@@ -333,35 +508,29 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── Portfolio save / load ─────────────────────────────────────────────────────
-const DEPLOYED_SERVER_URL = 'https://portfolio-analysis-production.up.railway.app';
-
-function serverBase() {
-  if (window.location.port === '3001') return '';
-  return localStorage.getItem('serverUrl') || DEPLOYED_SERVER_URL;
-}
-
 function getEmail() { return document.getElementById('userEmail').value.trim().toLowerCase(); }
 
-document.getElementById('lookupBtn').addEventListener('click', () => {
-  const email = getEmail();
-  if (!email) { showToast('Enter your email address first.'); return; }
-  lookupPortfolios(email);
-});
+function formatDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
 
-document.getElementById('userEmail').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('lookupBtn').click();
+// -- Portfolio save / load ------------------------------------------------
+document.getElementById('userEmail').addEventListener('blur', () => {
+  const email = getEmail();
+  if (email && currentPortfolioType) lookupPortfolios(email);
 });
 
 async function lookupPortfolios(email) {
+  if (!email || !currentPortfolioType) return;
   try {
-    const res  = await fetch(`${serverBase()}/portfolio/list?email=${encodeURIComponent(email)}`);
+    const res  = await fetch(`${serverBase()}/portfolio/list?email=${encodeURIComponent(email)}&portfolioType=${encodeURIComponent(currentPortfolioType)}`);
     const list = await res.json();
     renderSavedList(list);
     document.getElementById('savedPortfoliosWrap').classList.remove('hidden');
-    document.getElementById('saveWrap').classList.remove('hidden');
   } catch {
-    showToast('Could not reach server — is server.js running?');
+    showToast('Could not reach server.');
   }
 }
 
@@ -400,14 +569,27 @@ async function loadPortfolio(name) {
     if (!res.ok) { showToast('Portfolio not found.'); return; }
     const p = await res.json();
     funds = p.funds;
-    renderFundsTable();
+    if (p.allocMode) { allocMode = p.allocMode; allocModeSelect.value = allocMode; updateAllocModeUI(); }
+
+    if (currentPortfolioType === 'accenture401k') {
+      buildAccentureFundRows();
+      funds.forEach(f => {
+        const input = document.querySelector(`.accenture-alloc[data-ticker="${f.ticker}"]`);
+        if (input) input.value = f.alloc;
+      });
+      syncAccentureToFunds();
+    } else {
+      renderFundsTable();
+    }
+
     document.getElementById('resultsSection').classList.add('hidden');
     document.getElementById('portfolioName').value = name;
+    currentPortfolioName = name;
     showToast(`Loaded "${name}" — review allocations then click Analyze.`);
   } catch {
-    showToast('Could not load portfolio — is server.js running?');
+    showToast('Could not load portfolio.');
   }
-};
+}
 
 async function deletePortfolio(name) {
   if (!confirm(`Delete portfolio "${name}"?`)) return;
@@ -417,42 +599,37 @@ async function deletePortfolio(name) {
     lookupPortfolios(email);
     showToast(`Deleted "${name}".`);
   } catch {
-    showToast('Could not delete — is server.js running?');
+    showToast('Could not delete.');
   }
-};
+}
 
 document.getElementById('saveBtn').addEventListener('click', async () => {
   const email = getEmail();
   const name  = document.getElementById('portfolioName').value.trim();
-  if (!email) { showToast('Enter your email address first.'); return; }
-  if (!name)  { showToast('Enter a portfolio name.'); return; }
+  if (!email)        { showToast('Enter your email address first.'); return; }
+  if (!name)         { showToast('Enter a portfolio name.'); return; }
   if (!funds.length) { showToast('Add funds before saving.'); return; }
   try {
     const res = await fetch(`${serverBase()}/portfolio/save`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ email, name, funds })
+      body:    JSON.stringify({ email, name, funds, portfolioType: currentPortfolioType, allocMode })
     });
     if (!res.ok) { showToast('Save failed.'); return; }
+    currentPortfolioName = name;
     showToast(`Saved "${name}" successfully.`);
     lookupPortfolios(email);
   } catch {
-    showToast('Could not save — is server.js running?');
+    showToast('Could not save.');
   }
 });
 
-function formatDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-// ── Server connection banner ──────────────────────────────────────────────────
+// -- Server banner --------------------------------------------------------
 function initServerBanner() {
   const host = window.location.hostname;
-  if (window.location.port === '3001') return;       // local Node server
-  if (host.includes('railway.app'))    return;       // deployed on Railway
-  if (DEPLOYED_SERVER_URL && host === new URL(DEPLOYED_SERVER_URL).hostname) return; // custom domain
+  if (window.location.port === '3001') return;
+  if (host.includes('onrender.com'))   return;
+  if (DEPLOYED_SERVER_URL && host === new URL(DEPLOYED_SERVER_URL).hostname) return;
 
   const banner = document.getElementById('serverBanner');
   const input  = document.getElementById('serverUrlInput');
@@ -460,7 +637,6 @@ function initServerBanner() {
   const status = document.getElementById('serverStatus');
 
   banner.classList.remove('hidden');
-
   const saved = localStorage.getItem('serverUrl');
   if (saved) { input.value = saved; testServerUrl(saved, status); }
 
@@ -476,16 +652,14 @@ async function testServerUrl(url, statusEl) {
   statusEl.textContent = 'Testing...';
   statusEl.className   = 'server-status';
   try {
-    const res = await fetch(`${url}/holdings?ticker=TEST&type=etf`, { signal: AbortSignal.timeout(5000) });
-    // Any response (even an error) means the server is reachable
+    await fetch(`${url}/holdings?ticker=TEST&type=etf`, { signal: AbortSignal.timeout(5000) });
     statusEl.textContent = 'Connected';
     statusEl.className   = 'server-status ok';
   } catch {
-    statusEl.textContent = 'Cannot reach server — check the address and that server.js is running.';
+    statusEl.textContent = 'Cannot reach server.';
     statusEl.className   = 'server-status error';
   }
 }
 
-// ── Init ─────────────────────────────────────────────────────────────────────
+// -- Init -----------------------------------------------------------------
 initServerBanner();
-renderFundsTable();
